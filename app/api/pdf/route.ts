@@ -61,93 +61,274 @@ export async function GET(req: NextRequest) {
 
     const f = await fetchFactureFull(id);
 
-    // === Génération PDF avec pdf-lib (pas de polices externes) ===
+    // === Génération PDF moderne et élégant ===
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([595, 842]); // A4 portrait
+    const page = pdf.addPage([595, 842]); // A4
     const helv = await pdf.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-    const drawText = (
-      text: string,
-      x: number,
-      y: number,
-      size = 12,
-      color = rgb(0, 0, 0),
-      bold = false
-    ) => {
-      page.drawText(text, {
-        x,
-        y,
-        size,
-        color,
-        font: bold ? helvBold : helv,
-      });
-    };
+    // Couleurs modernes
+    const primary = rgb(0.231, 0.388, 0.922);      // Bleu #3B62EB
+    const secondary = rgb(0.008, 0.518, 0.780);    // Cyan #0284C7
+    const dark = rgb(0.091, 0.091, 0.091);         // Gris foncé #171717
+    const lightGray = rgb(0.965, 0.965, 0.965);    // Gris clair #F6F6F6
+    const mediumGray = rgb(0.556, 0.556, 0.576);   // Zinc-500
+    const white = rgb(1, 1, 1);
 
-    // Marges
-    const left = 50;
-    let y = 792; // top (842) - 50
-    const lineGap = 16;
+    // === HEADER AVEC BANDE BLEUE ===
+    // Bande bleue en haut
+    page.drawRectangle({
+      x: 0,
+      y: 792,
+      width: 595,
+      height: 100,
+      color: primary,
+    });
 
-    // En-tête
-    drawText('TBH ONE', left, y, 24, rgb(0, 0, 0), true);
-    y -= lineGap * 2;
-    drawText('VANDEWALLE CLEMENT', left, y, 10); y -= lineGap;
-    drawText('39 Avenue Émile Zola', left, y, 10); y -= lineGap;
-    drawText('59800 Lille', left, y, 10); y -= lineGap;
-    drawText('Siret : 91127899200019', left, y, 10);
+    // Logo/Nom entreprise (blanc sur bleu)
+    page.drawText('TBH', {
+      x: 50,
+      y: 825,
+      size: 32,
+      font: helvBold,
+      color: white,
+    });
+    page.drawText('ONE', {
+      x: 110,
+      y: 825,
+      size: 32,
+      font: helvBold,
+      color: secondary,
+    });
 
-    // Titre à droite
-    const rightX = 350;
-    y = 792 - lineGap; // remonte un peu
-    drawText(`${f.typeDocument} N°${f.numero}`, rightX, y, 18, rgb(0,0,0), true);
+    // Sous-titre
+    page.drawText('FACTURATION PROFESSIONNELLE', {
+      x: 50,
+      y: 807,
+      size: 8,
+      font: helv,
+      color: rgb(0.9, 0.9, 0.9),
+    });
 
-    // Client + date
-    y = 842 - 200;
-    drawText('Client :', rightX, y, 12, rgb(0,0,0), true); y -= lineGap;
-    drawText(`${f.client.nom}`, rightX, y, 10); y -= lineGap;
-    drawText(`Adresse : ${f.client.adresse}`, rightX, y, 10);
+    // Infos entreprise (blanc)
+    page.drawText('VANDEWALLE CLEMENT', { x: 50, y: 780, size: 9, font: helv, color: white });
+    page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: 50, y: 767, size: 9, font: helv, color: white });
+    page.drawText('SIRET : 911 278 992 00019', { x: 50, y: 754, size: 9, font: helv, color: white });
 
+    // Type de document + Numéro (encadré blanc à droite)
+    page.drawRectangle({
+      x: 370,
+      y: 772,
+      width: 175,
+      height: 50,
+      color: white,
+      borderColor: white,
+      borderWidth: 1,
+    });
+
+    page.drawText(f.typeDocument.toUpperCase(), {
+      x: 380,
+      y: 805,
+      size: 10,
+      font: helvBold,
+      color: primary,
+    });
+
+    page.drawText(`N° ${f.numero}`, {
+      x: 380,
+      y: 787,
+      size: 16,
+      font: helvBold,
+      color: dark,
+    });
+
+    // Date
     const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
-    drawText(`Date : ${dateFR}`, rightX, y - lineGap, 10, rgb(0.905, 0.298, 0.235));
+    page.drawText(dateFR, {
+      x: 380,
+      y: 770,
+      size: 9,
+      font: helv,
+      color: mediumGray,
+    });
 
-    // Tableau
-    let tableY = 842 - 300;
-    const col1 = left;
-    const col2 = 350;
-    const col3 = 450;
-    const col4 = 520;
+    // === BLOC CLIENT (encadré moderne) ===
+    page.drawRectangle({
+      x: 50,
+      y: 630,
+      width: 250,
+      height: 80,
+      color: lightGray,
+      borderColor: primary,
+      borderWidth: 2,
+    });
 
-    // En-têtes
-    drawText('Prestation', col1, tableY, 11, rgb(0,0,0), true);
-    drawText('Quantité',   col2, tableY, 11, rgb(0,0,0), true);
-    drawText('Prix unit.', col3, tableY, 11, rgb(0,0,0), true);
-    drawText('Total',      col4, tableY, 11, rgb(0,0,0), true);
-    tableY -= lineGap;
+    page.drawText('FACTURÉ À', {
+      x: 60,
+      y: 695,
+      size: 9,
+      font: helvBold,
+      color: primary,
+    });
 
-    // Lignes
-    for (const p of f.prestations) {
-      // (simple wrap : coupe si trop long)
-      const desc = p.description.length > 60 ? p.description.slice(0, 57) + '…' : p.description;
-      drawText(desc, col1, tableY, 10);
-      drawText(String(p.quantite), col2, tableY, 10);
-      drawText(`${p.prixUnit.toFixed(2)} €`, col3, tableY, 10);
-      drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, col4, tableY, 10);
-      tableY -= lineGap;
-    }
+    page.drawText(f.client.nom, {
+      x: 60,
+      y: 675,
+      size: 11,
+      font: helvBold,
+      color: dark,
+    });
 
-    // Total
-    tableY -= 10;
-    drawText('Total HT :', col3, tableY, 14, rgb(0,0,0), true);
-    drawText(`${f.totalHT.toFixed(2)} €`, col4, tableY, 14, rgb(0,0,0), true);
+    page.drawText(f.client.adresse, {
+      x: 60,
+      y: 658,
+      size: 9,
+      font: helv,
+      color: mediumGray,
+    });
 
-    // Pied de page
-    drawText('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', left, 70, 9, rgb(0.4,0.4,0.4));
-    drawText('Nom/Prénom : VANDEWALLE CLEMENT', left, 54, 9, rgb(0.4,0.4,0.4));
-    drawText('TVA non applicable, article 293B du CGI', left, 38, 9, rgb(0.4,0.4,0.4));
+    // === TABLEAU DES PRESTATIONS (design moderne) ===
+    let tableY = 590;
+    const col1 = 50;
+    const col2 = 340;
+    const col3 = 420;
+    const col4 = 500;
 
-    const pdfBytes = await pdf.save(); // Uint8Array
-    const buffer = Buffer.from(pdfBytes); // Conversion sûre pour NextResponse
+    // En-tête du tableau (fond bleu)
+    page.drawRectangle({
+      x: 45,
+      y: tableY - 5,
+      width: 505,
+      height: 25,
+      color: primary,
+    });
+
+    page.drawText('DESCRIPTION', { x: col1 + 5, y: tableY + 3, size: 10, font: helvBold, color: white });
+    page.drawText('QTÉ', { x: col2, y: tableY + 3, size: 10, font: helvBold, color: white });
+    page.drawText('PRIX U.', { x: col3, y: tableY + 3, size: 10, font: helvBold, color: white });
+    page.drawText('TOTAL', { x: col4, y: tableY + 3, size: 10, font: helvBold, color: white });
+
+    tableY -= 30;
+
+    // Lignes du tableau (alternance de couleurs)
+    f.prestations.forEach((p, index) => {
+      // Fond alterné
+      if (index % 2 === 0) {
+        page.drawRectangle({
+          x: 45,
+          y: tableY - 5,
+          width: 505,
+          height: 22,
+          color: rgb(0.98, 0.98, 0.98),
+        });
+      }
+
+      const desc = p.description.length > 45 ? p.description.slice(0, 42) + '...' : p.description;
+      
+      page.drawText(desc, { x: col1 + 5, y: tableY, size: 9, font: helv, color: dark });
+      page.drawText(String(p.quantite), { x: col2 + 10, y: tableY, size: 9, font: helv, color: dark });
+      page.drawText(`${p.prixUnit.toFixed(2)} €`, { x: col3, y: tableY, size: 9, font: helv, color: dark });
+      page.drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, { x: col4, y: tableY, size: 9, font: helvBold, color: dark });
+      
+      tableY -= 24;
+    });
+
+    // Ligne de séparation
+    page.drawLine({
+      start: { x: 45, y: tableY + 10 },
+      end: { x: 550, y: tableY + 10 },
+      thickness: 1,
+      color: lightGray,
+    });
+
+    // === TOTAL (encadré bleu moderne) ===
+    tableY -= 30;
+    page.drawRectangle({
+      x: 380,
+      y: tableY - 10,
+      width: 170,
+      height: 45,
+      color: primary,
+    });
+
+    page.drawText('TOTAL HT', {
+      x: 390,
+      y: tableY + 15,
+      size: 11,
+      font: helvBold,
+      color: white,
+    });
+
+    page.drawText(`${f.totalHT.toFixed(2)} €`, {
+      x: 450,
+      y: tableY + 15,
+      size: 18,
+      font: helvBold,
+      color: white,
+    });
+
+    page.drawText('TVA non applicable', {
+      x: 390,
+      y: tableY - 2,
+      size: 8,
+      font: helv,
+      color: rgb(0.9, 0.9, 0.9),
+    });
+
+    // === FOOTER (bande grise élégante) ===
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width: 595,
+      height: 80,
+      color: rgb(0.95, 0.95, 0.95),
+    });
+
+    // Infos de paiement
+    page.drawText('INFORMATIONS BANCAIRES', {
+      x: 50,
+      y: 60,
+      size: 8,
+      font: helvBold,
+      color: primary,
+    });
+
+    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', {
+      x: 50,
+      y: 45,
+      size: 9,
+      font: helv,
+      color: dark,
+    });
+
+    page.drawText('Titulaire : VANDEWALLE CLEMENT | REVOLUT', {
+      x: 50,
+      y: 32,
+      size: 9,
+      font: helv,
+      color: mediumGray,
+    });
+
+    // Note légale
+    page.drawText('TVA non applicable, article 293B du CGI', {
+      x: 50,
+      y: 15,
+      size: 7,
+      font: helv,
+      color: mediumGray,
+    });
+
+    // Petit logo/watermark en bas à droite
+    page.drawText('TBH ONE', {
+      x: 480,
+      y: 40,
+      size: 14,
+      font: helvBold,
+      color: rgb(0.9, 0.9, 0.9),
+    });
+
+    const pdfBytes = await pdf.save();
+    const buffer = Buffer.from(pdfBytes);
 
     // === Upload Supabase ===
     await ensureBucket();
@@ -160,7 +341,6 @@ export async function GET(req: NextRequest) {
       .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      // renvoyer le PDF quand même
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -174,7 +354,6 @@ export async function GET(req: NextRequest) {
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
 
-    // fallback binaire
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
