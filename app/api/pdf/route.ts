@@ -1,11 +1,12 @@
-// Force Node.js runtime (sinon Buffer/stream indisponible en Edge)
+// app/api/pdf/route.ts
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import fs from 'node:fs';
 
-// Bufferiser un PDFKit doc sans utiliser le namespace PDFKit
+// Helper: bufferiser un PDFKit doc
 const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
   new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -14,7 +15,7 @@ const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
     doc.on('error', reject);
   });
 
-// Assure l'existence du bucket public (ignorer si déjà créé)
+// Crée le bucket Storage s'il n'existe pas
 async function ensureBucket() {
   const { data: list } = await supabaseAdmin.storage.listBuckets();
   if (!list?.find((b) => b.name === 'factures')) {
@@ -24,22 +25,20 @@ async function ensureBucket() {
   }
 }
 
-// Récupérer facture + client + prestations (via Supabase)
+// Récupération facture + client + lignes depuis Supabase
 async function fetchFactureFull(id: string) {
   const { data: facture, error } = await supabaseAdmin
     .from('factures')
     .select(`
-      id,
-      numero,
-      date,
-      type_document,
-      total_ht,
+      id, numero, date, type_document, total_ht,
       client:clients ( id, nom, adresse )
     `)
     .eq('id', id)
     .single();
 
-  if (error || !facture) throw new Error(error?.message || 'Facture introuvable');
+  if (error || !facture) {
+    throw new Error(error?.message || 'Facture introuvable');
+  }
 
   const { data: lignes, error: err2 } = await supabaseAdmin
     .from('prestations')
@@ -47,7 +46,9 @@ async function fetchFactureFull(id: string) {
     .eq('facture_id', id)
     .order('description');
 
-  if (err2) throw new Error(err2.message);
+  if (err2) {
+    throw new Error(err2.message);
+  }
 
   return {
     id: String(facture.id),
@@ -71,46 +72,68 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
+    }
 
     const facture = await fetchFactureFull(id);
 
-    // Génération PDF
+    // === PDF ===
     const doc = new PDFDocument({ margin: 50 });
 
-    // En-tête - UTILISER LES POLICES PAR DÉFAUT
+    // Charger des polices TTF si disponibles (évite l’erreur Helvetica.afm en serverless)
+    try {
+      const regular = fs.readFileSync(new URL('./fonts/LibreFranklin-Regular.ttf', import.meta.url));
+      const bold = fs.readFileSync(new URL('./fonts/LibreFranklin-Bold.ttf', import.meta.url));
+      doc.registerFont('regular', regular);
+      doc.registerFont('bold', bold);
+    } catch {
+      // Fallback silencieux: on laisse la police par défaut de PDFKit
+    }
+
+    // En-tête
+    (doc as any).font?.('bold'); // si police custom enregistrée
     doc.fontSize(24).text('TBH ONE', 50, 50);
+
+    (doc as any).font?.('regular');
     doc.fontSize(10)
       .text('VANDEWALLE CLEMENT', 50, 80)
       .text('39 Avenue Émile Zola', 50, 95)
       .text('59800 Lille', 50, 110)
       .text('Siret : 91127899200019', 50, 125);
-    doc.fontSize(20)
-      .text(`${facture.typeDocument} N°${facture.numero}`, 350, 50, { align: 'right' });
+
+    (doc as any).font?.('bold');
+    doc.fontSize(20).text(`${facture.typeDocument} N°${facture.numero}`, 350, 50, { align: 'right' });
 
     // Client + date
+    (doc as any).font?.('bold');
     doc.fontSize(12).text('Client :', 350, 120);
+
+    (doc as any).font?.('regular');
     doc.fontSize(10)
       .text(facture.client.nom, 350, 140)
       .text(`Adresse : ${facture.client.adresse}`, 350, 155);
 
     const dateFormatee = new Date(facture.date).toLocaleDateString('fr-FR');
-    doc.fillColor('#e74c3c');
-    doc.fontSize(10).text(`Date : ${dateFormatee}`, 350, 185, { align: 'right' });
+    doc.fillColor('#e74c3c').fontSize(10).text(`Date : ${dateFormatee}`, 350, 185, { align: 'right' });
     doc.fillColor('black');
 
     // Tableau
     const tableTop = 250, col1 = 50, col2 = 350, col3 = 450, col4 = 520;
+
+    (doc as any).font?.('bold');
     doc.fontSize(11);
     doc.rect(col1, tableTop, 500, 25).fillAndStroke('#f0f0f0', '#cccccc');
-    doc.fillColor('#000').text('Prestation', col1 + 5, tableTop + 7)
+    doc.fillColor('#000')
+      .text('Prestation', col1 + 5, tableTop + 7)
       .text('Quantité', col2 + 5, tableTop + 7)
       .text('Prix unit.', col3 + 5, tableTop + 7)
       .text('Total', col4 + 5, tableTop + 7);
 
     let y = tableTop + 35;
+    (doc as any).font?.('regular');
     doc.fontSize(10);
-    facture.prestations.forEach((p, i) => {
+    (facture.prestations ?? []).forEach((p, i) => {
       const bg = i % 2 ? '#f9f9f9' : '#ffffff';
       doc.rect(col1, y - 5, 500, 25).fillAndStroke(bg, '#e0e0e0');
       doc.fillColor('#000')
@@ -123,12 +146,15 @@ export async function GET(req: NextRequest) {
 
     // Total
     y += 20;
+    (doc as any).font?.('bold');
     doc.fontSize(14);
     doc.rect(col3 - 10, y, 162, 30).fillAndStroke('#3b82f6', '#3b82f6');
-    doc.fillColor('#fff').text('Total HT :', col3, y + 8)
+    doc.fillColor('#fff')
+      .text('Total HT :', col3, y + 8)
       .text(`${facture.totalHT.toFixed(2)} €`, col4, y + 8, { align: 'right' });
 
-    // Pied de page
+    // Footer
+    (doc as any).font?.('regular');
     doc.fontSize(9).fillColor('#666');
     doc.text('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', 50, 700);
     doc.text('Nom/Prénom : VANDEWALLE CLEMENT', 50, 715);
@@ -137,7 +163,9 @@ export async function GET(req: NextRequest) {
     doc.end();
     const buffer = await pdfToBuffer(doc);
 
-    // Upload Storage
+    // === Upload Supabase via Blob (pas de "as any") ===
+    const pdfBlob = new Blob([buffer], { type: 'application/pdf' });
+
     await ensureBucket();
     const yyyy = new Date(facture.date).getFullYear();
     const mm = String(new Date(facture.date).getMonth() + 1).padStart(2, '0');
@@ -145,11 +173,11 @@ export async function GET(req: NextRequest) {
 
     const { error: upErr } = await supabaseAdmin.storage
       .from('factures')
-      .upload(path, buffer as any, { contentType: 'application/pdf', upsert: true });
+      .upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      // fallback direct si upload échoue
-      return new NextResponse(buffer as any, {
+      // Fallback direct si l’upload échoue
+      return new NextResponse(pdfBlob, {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="Facture_${facture.numero}.pdf"`,
@@ -158,13 +186,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Redirection vers l'URL publique
+    // URL publique + redirection
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     const url = pub?.publicUrl;
-    if (url) return NextResponse.redirect(url, 302);
+    if (url) {
+      return NextResponse.redirect(url, 302);
+    }
 
-    // fallback binaire
-    return new NextResponse(buffer as any, {
+    // Fallback: renvoyer le flux binaire
+    return new NextResponse(pdfBlob, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="Facture_${facture.numero}.pdf"`,
