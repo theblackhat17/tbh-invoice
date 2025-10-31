@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 
 // Génère un numéro type 2025-10-001 en regardant les factures existantes
@@ -24,8 +24,53 @@ async function genererNumeroFacture(): Promise<string> {
   return `${prefixe}-${next}`;
 }
 
-// ===== GET: liste des factures (forme attendue par ton front) =====
-export async function GET() {
+// ===== GET: liste des factures OU une facture par ID =====
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  // Si un ID est fourni, retourner UNE SEULE facture avec toutes ses données
+  if (id) {
+    const { data, error } = await supabase
+      .from('factures')
+      .select(`
+        id,
+        numero,
+        date,
+        type_document,
+        total_ht,
+        client:clients!factures_client_id_fkey ( nom, adresse ),
+        prestations ( description, quantite, prix_unit )
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Adapter pour le front
+    const shaped = {
+      id: data.id,
+      numero: data.numero,
+      date: data.date,
+      type_document: data.type_document,
+      total_ht: Number(data.total_ht ?? 0),
+      client: {
+        nom: (data.client as any)?.nom ?? '—',
+        adresse: (data.client as any)?.adresse ?? '',
+      },
+      prestations: (data.prestations ?? []).map((p: any) => ({
+        description: String(p.description ?? ''),
+        quantite: Number(p.quantite ?? 0),
+        prix_unit: Number(p.prix_unit ?? 0),
+      })),
+    };
+
+    return NextResponse.json(shaped);
+  }
+
+  // Sinon, retourner la LISTE de toutes les factures
   const { data, error } = await supabase
     .from('factures')
     .select(`
@@ -79,7 +124,7 @@ export async function POST(req: Request) {
     const numero = await genererNumeroFacture();
 
     // 1) Insert facture
-    const { data: newFactureArr, error: errInsert } = await supabase
+    const { data: newFacture, error: errInsert } = await supabase
       .from('factures')
       .insert([
         {
@@ -96,8 +141,6 @@ export async function POST(req: Request) {
     if (errInsert) {
       return NextResponse.json({ error: errInsert.message }, { status: 500 });
     }
-
-    const newFacture = newFactureArr;
 
     // 2) Insert prestations (si présentes)
     if (safePrestations.length > 0) {

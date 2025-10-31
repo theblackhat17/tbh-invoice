@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
 
     const facture = await fetchFactureFull(id);
 
-    // Création PDF - SANS polices personnalisées
+    // Création PDF
     const doc = new PDFDocument({ margin: 50 });
 
     // En-tête
