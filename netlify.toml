@@ -1,0 +1,4 @@
+# netlify.toml – à la racine du repo
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["app/api/pdf/fonts/*.ttf"]
