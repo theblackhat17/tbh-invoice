@@ -1,0 +1,19 @@
+[
+  {
+    "date": "2025-10-31",
+    "typeDocument": "Facture",
+    "clientId": "1761905921481-tv8s5bic2",
+    "totalHT": 250,
+    "prestations": [
+      {
+        "description": "dj set 18h00h",
+        "quantite": 1,
+        "prixUnit": 250,
+        "id": "1761905946485-a255l6r26"
+      }
+    ],
+    "id": "1761905946485-m6y5uvc2q",
+    "numero": "2025-10-001",
+    "createdAt": "2025-10-31T10:19:06.485Z"
+  }
+]

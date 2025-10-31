@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========= Thème ========= */
+:root {
+  --bg: 246 246 248;          /* #f6f6f8 */
+  --fg: 23 23 23;             /* #171717 */
+  --muted: 113 113 122;       /* zinc-500 */
+  --brand: 37 99 235;         /* blue-600 */
+  --brand-2: 2 132 199;       /* sky-600 */
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 10 10 10;           /* #0a0a0a */
+    --fg: 237 237 237;        /* #ededed */
+    --muted: 161 161 170;     /* zinc-400 */
+    --brand: 56 189 248;      /* sky-400 */
+    --brand-2: 59 130 246;    /* blue-500 */
+  }
+}
+
+html, body { height: 100%; }
+body {
+  color: rgb(var(--fg));
+  background: radial-gradient(1200px 800px at 10% -10%, rgba(59,130,246,.08), transparent 40%),
+              radial-gradient(1000px 600px at 110% 10%, rgba(2,132,199,.08), transparent 45%),
+              rgb(var(--bg));
+  font-feature-settings: "cv02","cv03","cv04","cv11";
+}
+
+/* Subtle grid overlay */
+.bg-grid {
+  background-image: linear-gradient(to right, rgba(113,113,122,0.08) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(113,113,122,0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ========= Composants utilitaires ========= */
+@layer components {
+  .container-app {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .glass {
+    @apply bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md border border-zinc-200/60 dark:border-zinc-800/60;
+  }
+
+  .card {
+    @apply glass rounded-2xl p-6 shadow-sm hover:shadow-lg transition-shadow;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 font-medium transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600;
+  }
+  .btn-success {
+    @apply btn bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-black/5 dark:hover:bg-white/5;
+  }
+
+  .nav-link {
+    @apply rounded-xl px-3 py-2 text-sm font-medium text-zinc-200 hover:text-white hover:bg-white/10 transition-colors;
+  }
+  .nav-link-active {
+    @apply bg-white/15 text-white shadow-inner;
+  }
+}
+
+/* Animations légères */
+@keyframes float {
+  0%,100% { transform: translateY(0) }
+  50% { transform: translateY(-4px) }
+}
+.floating { animation: float 6s ease-in-out infinite; }

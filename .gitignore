@@ -1,0 +1,14 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+
+# Logs & IDE
+*.log
+.vscode/
+.DS_Store
+
+# Env
+.env
+.env.*
