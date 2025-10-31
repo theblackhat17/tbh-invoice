@@ -1,64 +1,26 @@
-import { NextResponse } from 'next/server';
-import { getAllClients, createClient, deleteClient, getAllFactures } from '@/lib/db';
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
-// GET : Récupérer tous les clients
 export async function GET() {
-  try {
-    const clients = getAllClients();
-    const factures = getAllFactures();
-    
-    // Ajouter le compte de factures pour chaque client
-    const clientsAvecCompte = clients.map(client => ({
-      ...client,
-      _count: {
-        factures: factures.filter(f => f.clientId === client.id).length
-      }
-    }));
-    
-    return NextResponse.json(clientsAvecCompte);
-  } catch (error) {
-    return NextResponse.json({ error: 'Erreur lors de la récupération des clients' }, { status: 500 });
-  }
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*, factures(count)")
+    .order("created_at", { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }
 
-// POST : Créer un nouveau client
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { nom, adresse, email, telephone, siret } = body;
-
-    const client = createClient({
-      nom,
-      adresse,
-      email,
-      telephone,
-      siret,
-    });
-
-    return NextResponse.json(client, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: 'Erreur lors de la création du client' }, { status: 500 });
-  }
+export async function POST(req: Request) {
+  const body = await req.json();
+  const { data, error } = await supabase.from("clients").insert([body]).select();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data[0]);
 }
 
-// DELETE : Supprimer un client
-export async function DELETE(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
-    }
-
-    const success = deleteClient(id);
-    
-    if (!success) {
-      return NextResponse.json({ error: 'Client introuvable' }, { status: 404 });
-    }
-
-    return NextResponse.json({ message: 'Client supprimé avec succès' });
-  } catch (error) {
-    return NextResponse.json({ error: 'Erreur lors de la suppression du client' }, { status: 500 });
-  }
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
 }

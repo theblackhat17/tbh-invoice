@@ -1,68 +1,34 @@
-import { NextResponse } from 'next/server';
-import { getAllFactures, createFacture, deleteFacture, getClientById } from '@/lib/db';
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
-// GET : Récupérer toutes les factures
 export async function GET() {
-  try {
-    const factures = getAllFactures();
-    
-    // Ajouter les infos client à chaque facture
-    const facturesAvecClient = factures.map(facture => ({
-      ...facture,
-      client: getClientById(facture.clientId)
-    }));
-    
-    return NextResponse.json(facturesAvecClient);
-  } catch (error) {
-    return NextResponse.json({ error: 'Erreur lors de la récupération des factures' }, { status: 500 });
-  }
+  const { data, error } = await supabase
+    .from("factures")
+    .select("*, clients(nom)");
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
 }
 
-// POST : Créer une nouvelle facture
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { clientId, date, typeDocument, prestations, totalHT } = body;
+export async function POST(req: Request) {
+  const body = await req.json();
+  const { data, error } = await supabase.from("factures").insert([
+    {
+      numero: body.numero,
+      date: body.date,
+      type_document: body.typeDocument,
+      total_ht: body.totalHT,
+      client_id: body.clientId,
+    },
+  ]).select();
 
-    const facture = createFacture({
-      date,
-      typeDocument,
-      clientId,
-      totalHT,
-      prestations,
-    });
-
-    // Retourner avec le client
-    const factureAvecClient = {
-      ...facture,
-      client: getClientById(facture.clientId)
-    };
-
-    return NextResponse.json(factureAvecClient, { status: 201 });
-  } catch (error) {
-    console.error('Erreur:', error);
-    return NextResponse.json({ error: 'Erreur lors de la création de la facture' }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data[0]);
 }
 
-// DELETE : Supprimer une facture
-export async function DELETE(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
-    }
-
-    const success = deleteFacture(id);
-    
-    if (!success) {
-      return NextResponse.json({ error: 'Facture introuvable' }, { status: 404 });
-    }
-
-    return NextResponse.json({ message: 'Facture supprimée avec succès' });
-  } catch (error) {
-    return NextResponse.json({ error: 'Erreur lors de la suppression de la facture' }, { status: 500 });
-  }
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+  const { error } = await supabase.from("factures").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
 }
