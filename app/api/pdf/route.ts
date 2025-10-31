@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
     // Couleurs modernes
-    const primary = rgb(2, 10, 33);      // Bleu #0d1530ff
+    const primary = rgb(0.0078, 0.0392, 0.1294);     // Bleu #0d1530ff
     const secondary = rgb(0.008, 0.518, 0.780);    // Cyan #0284C7
     const dark = rgb(0.091, 0.091, 0.091);         // Gris foncé #171717
     const lightGray = rgb(0.965, 0.965, 0.965);    // Gris clair #F6F6F6
