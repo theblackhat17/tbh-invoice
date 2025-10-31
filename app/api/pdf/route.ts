@@ -1,24 +1,10 @@
 // app/api/pdf/route.ts
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import PDFDocument from 'pdfkit';
-import fontkit from 'fontkit';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-function toArrayBuffer(buf: Buffer): ArrayBuffer {
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
-const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
-  new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    doc.on('data', (c) => chunks.push(c as Buffer));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-  });
 
 async function ensureBucket() {
   const { data } = await supabaseAdmin.storage.listBuckets();
@@ -75,101 +61,107 @@ export async function GET(req: NextRequest) {
 
     const f = await fetchFactureFull(id);
 
-    // --- Enregistrer des polices TTF depuis le disque ---
-    const fontsDir = join(process.cwd(), 'app', 'api', 'pdf', 'fonts');
-    let regular: Buffer | undefined;
-    let bold: Buffer | undefined;
-    try {
-      regular = readFileSync(join(fontsDir, 'Inter-Regular.ttf'));
-      bold    = readFileSync(join(fontsDir, 'Inter-Bold.ttf'));
-    } catch {
-      // Pas de crash : on tombera sur les polices de base de PDFKit
-    }
+    // === Génération PDF avec pdf-lib (pas de polices externes) ===
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595, 842]); // A4 portrait
+    const helv = await pdf.embedFont(StandardFonts.Helvetica);
+    const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-    const doc = new PDFDocument({ margin: 50 });
-    (doc as any).registerFont && fontkit; // force l’enregistrement du moteur
+    const drawText = (
+      text: string,
+      x: number,
+      y: number,
+      size = 12,
+      color = rgb(0, 0, 0),
+      bold = false
+    ) => {
+      page.drawText(text, {
+        x,
+        y,
+        size,
+        color,
+        font: bold ? helvBold : helv,
+      });
+    };
 
-    if (regular) doc.registerFont('Regular', regular);
-    if (bold)    doc.registerFont('Bold', bold);
-
-    const use = (name: 'Regular' | 'Bold') =>
-      (regular || bold) ? doc.font(name) : doc.font(name === 'Bold' ? 'Helvetica-Bold' : 'Helvetica');
+    // Marges
+    const left = 50;
+    let y = 792; // top (842) - 50
+    const lineGap = 16;
 
     // En-tête
-    use('Bold').fontSize(24).text('TBH ONE', 50, 50);
-    use('Regular').fontSize(10)
-      .text('VANDEWALLE CLEMENT', 50, 80)
-      .text('39 Avenue Émile Zola', 50, 95)
-      .text('59800 Lille', 50, 110)
-      .text('Siret : 91127899200019', 50, 125);
-    use('Bold').fontSize(20)
-      .text(`${f.typeDocument} N°${f.numero}`, 350, 50, { align: 'right' });
+    drawText('TBH ONE', left, y, 24, rgb(0, 0, 0), true);
+    y -= lineGap * 2;
+    drawText('VANDEWALLE CLEMENT', left, y, 10); y -= lineGap;
+    drawText('39 Avenue Émile Zola', left, y, 10); y -= lineGap;
+    drawText('59800 Lille', left, y, 10); y -= lineGap;
+    drawText('Siret : 91127899200019', left, y, 10);
+
+    // Titre à droite
+    const rightX = 350;
+    y = 792 - lineGap; // remonte un peu
+    drawText(`${f.typeDocument} N°${f.numero}`, rightX, y, 18, rgb(0,0,0), true);
 
     // Client + date
-    use('Bold').fontSize(12).text('Client :', 350, 120);
-    use('Regular').fontSize(10)
-      .text(f.client.nom, 350, 140)
-      .text(`Adresse : ${f.client.adresse}`, 350, 155);
+    y = 842 - 200;
+    drawText('Client :', rightX, y, 12, rgb(0,0,0), true); y -= lineGap;
+    drawText(`${f.client.nom}`, rightX, y, 10); y -= lineGap;
+    drawText(`Adresse : ${f.client.adresse}`, rightX, y, 10);
 
     const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
-    doc.fillColor('#e74c3c').fontSize(10).text(`Date : ${dateFR}`, 350, 185, { align: 'right' });
-    doc.fillColor('black');
+    drawText(`Date : ${dateFR}`, rightX, y - lineGap, 10, rgb(0.905, 0.298, 0.235));
 
     // Tableau
-    const tableTop = 250, col1 = 50, col2 = 350, col3 = 450, col4 = 520;
-    use('Bold').fontSize(11);
-    doc.rect(col1, tableTop, 500, 25).fillAndStroke('#f0f0f0', '#cccccc');
-    doc.fillColor('#000')
-      .text('Prestation', col1 + 5, tableTop + 7)
-      .text('Quantité',   col2 + 5, tableTop + 7)
-      .text('Prix unit.', col3 + 5, tableTop + 7)
-      .text('Total',      col4 + 5, tableTop + 7);
+    let tableY = 842 - 300;
+    const col1 = left;
+    const col2 = 350;
+    const col3 = 450;
+    const col4 = 520;
 
-    let y = tableTop + 35;
-    use('Regular').fontSize(10);
-    (f.prestations ?? []).forEach((p, i) => {
-      const bg = i % 2 ? '#f9f9f9' : '#ffffff';
-      doc.rect(col1, y - 5, 500, 25).fillAndStroke(bg, '#e0e0e0');
-      doc.fillColor('#000')
-        .text(p.description, col1 + 5, y, { width: 280 })
-        .text(String(p.quantite), col2 + 5, y)
-        .text(`${p.prixUnit.toFixed(2)} €`, col3 + 5, y)
-        .text(`${(p.quantite * p.prixUnit).toFixed(2)} €`, col4 + 5, y);
-      y += 30;
-    });
+    // En-têtes
+    drawText('Prestation', col1, tableY, 11, rgb(0,0,0), true);
+    drawText('Quantité',   col2, tableY, 11, rgb(0,0,0), true);
+    drawText('Prix unit.', col3, tableY, 11, rgb(0,0,0), true);
+    drawText('Total',      col4, tableY, 11, rgb(0,0,0), true);
+    tableY -= lineGap;
+
+    // Lignes
+    for (const p of f.prestations) {
+      // (simple wrap : coupe si trop long)
+      const desc = p.description.length > 60 ? p.description.slice(0, 57) + '…' : p.description;
+      drawText(desc, col1, tableY, 10);
+      drawText(String(p.quantite), col2, tableY, 10);
+      drawText(`${p.prixUnit.toFixed(2)} €`, col3, tableY, 10);
+      drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, col4, tableY, 10);
+      tableY -= lineGap;
+    }
 
     // Total
-    y += 20;
-    use('Bold').fontSize(14);
-    doc.rect(col3 - 10, y, 162, 30).fillAndStroke('#3b82f6', '#3b82f6');
-    doc.fillColor('#fff')
-      .text('Total HT :', col3, y + 8)
-      .text(`${f.totalHT.toFixed(2)} €`, col4, y + 8, { align: 'right' });
+    tableY -= 10;
+    drawText('Total HT :', col3, tableY, 14, rgb(0,0,0), true);
+    drawText(`${f.totalHT.toFixed(2)} €`, col4, tableY, 14, rgb(0,0,0), true);
 
-    // Footer
-    use('Regular').fontSize(9).fillColor('#666');
-    doc.text('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', 50, 700);
-    doc.text('Nom/Prénom : VANDEWALLE CLEMENT', 50, 715);
-    doc.text('TVA non applicable, article 293B du CGI', 50, 745, { align: 'center' });
+    // Pied de page
+    drawText('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', left, 70, 9, rgb(0.4,0.4,0.4));
+    drawText('Nom/Prénom : VANDEWALLE CLEMENT', left, 54, 9, rgb(0.4,0.4,0.4));
+    drawText('TVA non applicable, article 293B du CGI', left, 38, 9, rgb(0.4,0.4,0.4));
 
-    doc.end();
-    const buf = await pdfToBuffer(doc);
+    const pdfBytes = await pdf.save(); // Uint8Array
+    const buffer = Buffer.from(pdfBytes); // Conversion sûre pour NextResponse
 
-    // Upload via Uint8Array (pas de Blob)
-    const ab    = toArrayBuffer(buf);
-    const uint8 = new Uint8Array(ab);
-
+    // === Upload Supabase ===
     await ensureBucket();
     const yyyy = new Date(f.date).getFullYear();
-    const mm   = String(new Date(f.date).getMonth() + 1).padStart(2, '0');
+    const mm = String(new Date(f.date).getMonth() + 1).padStart(2, '0');
     const path = `${yyyy}/${mm}/Facture_${f.numero}_${f.id}.pdf`;
 
     const { error: upErr } = await supabaseAdmin.storage
       .from('factures')
-      .upload(path, uint8, { contentType: 'application/pdf', upsert: true });
+      .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      return new NextResponse(ab, {
+      // renvoyer le PDF quand même
+      return new NextResponse(buffer, {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="Facture_${f.numero}.pdf"`,
@@ -182,7 +174,8 @@ export async function GET(req: NextRequest) {
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
 
-    return new NextResponse(ab, {
+    // fallback binaire
+    return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="Facture_${f.numero}.pdf"`,
