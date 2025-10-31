@@ -3,15 +3,15 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
+import fontkit from 'fontkit';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-// Buffer -> ArrayBuffer (sans SharedArrayBuffer)
 function toArrayBuffer(buf: Buffer): ArrayBuffer {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
-// PDFKit -> Buffer
 const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
   new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -75,27 +75,39 @@ export async function GET(req: NextRequest) {
 
     const f = await fetchFactureFull(id);
 
-    // — Polices TTF embarquées (évite Helvetica.afm) —
-    const regular = readFileSync(new URL('./fonts/Inter-Regular.ttf', import.meta.url));
-    const bold    = readFileSync(new URL('./fonts/Inter-Bold.ttf', import.meta.url));
+    // --- Enregistrer des polices TTF depuis le disque ---
+    const fontsDir = join(process.cwd(), 'app', 'api', 'pdf', 'fonts');
+    let regular: Buffer | undefined;
+    let bold: Buffer | undefined;
+    try {
+      regular = readFileSync(join(fontsDir, 'Inter-Regular.ttf'));
+      bold    = readFileSync(join(fontsDir, 'Inter-Bold.ttf'));
+    } catch {
+      // Pas de crash : on tombera sur les polices de base de PDFKit
+    }
 
     const doc = new PDFDocument({ margin: 50 });
-    doc.registerFont('Regular', regular);
-    doc.registerFont('Bold', bold);
+    (doc as any).registerFont && fontkit; // force l’enregistrement du moteur
+
+    if (regular) doc.registerFont('Regular', regular);
+    if (bold)    doc.registerFont('Bold', bold);
+
+    const use = (name: 'Regular' | 'Bold') =>
+      (regular || bold) ? doc.font(name) : doc.font(name === 'Bold' ? 'Helvetica-Bold' : 'Helvetica');
 
     // En-tête
-    doc.font('Bold').fontSize(24).text('TBH ONE', 50, 50);
-    doc.font('Regular').fontSize(10)
+    use('Bold').fontSize(24).text('TBH ONE', 50, 50);
+    use('Regular').fontSize(10)
       .text('VANDEWALLE CLEMENT', 50, 80)
       .text('39 Avenue Émile Zola', 50, 95)
       .text('59800 Lille', 50, 110)
       .text('Siret : 91127899200019', 50, 125);
-    doc.font('Bold').fontSize(20)
+    use('Bold').fontSize(20)
       .text(`${f.typeDocument} N°${f.numero}`, 350, 50, { align: 'right' });
 
     // Client + date
-    doc.font('Bold').fontSize(12).text('Client :', 350, 120);
-    doc.font('Regular').fontSize(10)
+    use('Bold').fontSize(12).text('Client :', 350, 120);
+    use('Regular').fontSize(10)
       .text(f.client.nom, 350, 140)
       .text(`Adresse : ${f.client.adresse}`, 350, 155);
 
@@ -105,7 +117,7 @@ export async function GET(req: NextRequest) {
 
     // Tableau
     const tableTop = 250, col1 = 50, col2 = 350, col3 = 450, col4 = 520;
-    doc.font('Bold').fontSize(11);
+    use('Bold').fontSize(11);
     doc.rect(col1, tableTop, 500, 25).fillAndStroke('#f0f0f0', '#cccccc');
     doc.fillColor('#000')
       .text('Prestation', col1 + 5, tableTop + 7)
@@ -114,7 +126,7 @@ export async function GET(req: NextRequest) {
       .text('Total',      col4 + 5, tableTop + 7);
 
     let y = tableTop + 35;
-    doc.font('Regular').fontSize(10);
+    use('Regular').fontSize(10);
     (f.prestations ?? []).forEach((p, i) => {
       const bg = i % 2 ? '#f9f9f9' : '#ffffff';
       doc.rect(col1, y - 5, 500, 25).fillAndStroke(bg, '#e0e0e0');
@@ -128,14 +140,14 @@ export async function GET(req: NextRequest) {
 
     // Total
     y += 20;
-    doc.font('Bold').fontSize(14);
+    use('Bold').fontSize(14);
     doc.rect(col3 - 10, y, 162, 30).fillAndStroke('#3b82f6', '#3b82f6');
     doc.fillColor('#fff')
       .text('Total HT :', col3, y + 8)
       .text(`${f.totalHT.toFixed(2)} €`, col4, y + 8, { align: 'right' });
 
     // Footer
-    doc.font('Regular').fontSize(9).fillColor('#666');
+    use('Regular').fontSize(9).fillColor('#666');
     doc.text('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', 50, 700);
     doc.text('Nom/Prénom : VANDEWALLE CLEMENT', 50, 715);
     doc.text('TVA non applicable, article 293B du CGI', 50, 745, { align: 'center' });
@@ -143,7 +155,7 @@ export async function GET(req: NextRequest) {
     doc.end();
     const buf = await pdfToBuffer(doc);
 
-    // === Upload Supabase via Uint8Array ===
+    // Upload via Uint8Array (pas de Blob)
     const ab    = toArrayBuffer(buf);
     const uint8 = new Uint8Array(ab);
 
@@ -157,7 +169,6 @@ export async function GET(req: NextRequest) {
       .upload(path, uint8, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      // Fallback : renvoyer le PDF directement
       return new NextResponse(ab, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -168,11 +179,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Redirection vers l’URL publique
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
 
-    // Fallback : binaire
     return new NextResponse(ab, {
       headers: {
         'Content-Type': 'application/pdf',
