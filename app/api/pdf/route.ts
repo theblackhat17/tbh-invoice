@@ -4,7 +4,6 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import fs from 'node:fs';
 
 // Helper: bufferiser un PDFKit doc
 const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
@@ -81,37 +80,18 @@ export async function GET(req: NextRequest) {
     // === PDF ===
     const doc = new PDFDocument({ margin: 50 });
 
-    // Polices TTF optionnelles (évite l’erreur Helvetica.afm en serverless)
-    try {
-      const regular = fs.readFileSync(new URL('./fonts/LibreFranklin-Regular.ttf', import.meta.url));
-      const bold = fs.readFileSync(new URL('./fonts/LibreFranklin-Bold.ttf', import.meta.url));
-      doc.registerFont('regular', regular);
-      doc.registerFont('bold', bold);
-    } catch {
-      // Fallback silencieux: on laisse la police par défaut de PDFKit
-    }
-
     // En-tête
-    (doc as any).font?.('bold');
     doc.fontSize(24).text('TBH ONE', 50, 50);
-
-    (doc as any).font?.('regular');
     doc.fontSize(10)
       .text('VANDEWALLE CLEMENT', 50, 80)
       .text('39 Avenue Émile Zola', 50, 95)
       .text('59800 Lille', 50, 110)
       .text('Siret : 91127899200019', 50, 125);
-
-    (doc as any).font?.('bold');
-    doc
-      .fontSize(20)
+    doc.fontSize(20)
       .text(`${facture.typeDocument} N°${facture.numero}`, 350, 50, { align: 'right' });
 
     // Client + date
-    (doc as any).font?.('bold');
     doc.fontSize(12).text('Client :', 350, 120);
-
-    (doc as any).font?.('regular');
     doc.fontSize(10)
       .text(facture.client.nom, 350, 140)
       .text(`Adresse : ${facture.client.adresse}`, 350, 155);
@@ -123,7 +103,6 @@ export async function GET(req: NextRequest) {
     // Tableau
     const tableTop = 250, col1 = 50, col2 = 350, col3 = 450, col4 = 520;
 
-    (doc as any).font?.('bold');
     doc.fontSize(11);
     doc.rect(col1, tableTop, 500, 25).fillAndStroke('#f0f0f0', '#cccccc');
     doc.fillColor('#000')
@@ -133,7 +112,6 @@ export async function GET(req: NextRequest) {
       .text('Total', col4 + 5, tableTop + 7);
 
     let y = tableTop + 35;
-    (doc as any).font?.('regular');
     doc.fontSize(10);
     (facture.prestations ?? []).forEach((p, i) => {
       const bg = i % 2 ? '#f9f9f9' : '#ffffff';
@@ -148,7 +126,6 @@ export async function GET(req: NextRequest) {
 
     // Total
     y += 20;
-    (doc as any).font?.('bold');
     doc.fontSize(14);
     doc.rect(col3 - 10, y, 162, 30).fillAndStroke('#3b82f6', '#3b82f6');
     doc.fillColor('#fff')
@@ -156,7 +133,6 @@ export async function GET(req: NextRequest) {
       .text(`${facture.totalHT.toFixed(2)} €`, col4, y + 8, { align: 'right' });
 
     // Footer
-    (doc as any).font?.('regular');
     doc.fontSize(9).fillColor('#666');
     doc.text('IBAN : FR76 2823 3000 0153 3547 5796 770 | REVOLUT', 50, 700);
     doc.text('Nom/Prénom : VANDEWALLE CLEMENT', 50, 715);
@@ -165,16 +141,15 @@ export async function GET(req: NextRequest) {
     doc.end();
     const buffer = await pdfToBuffer(doc);
 
-    // === Buffer -> ArrayBuffer -> Uint8Array (upload) ===
-    const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-    const uint8 = new Uint8Array(ab);
+    // Conversion Buffer -> Uint8Array (compatible avec tout)
+    const uint8 = new Uint8Array(buffer);
 
     await ensureBucket();
     const yyyy = new Date(facture.date).getFullYear();
     const mm = String(new Date(facture.date).getMonth() + 1).padStart(2, '0');
     const path = `${yyyy}/${mm}/Facture_${facture.numero}_${facture.id}.pdf`;
 
-    // Upload Supabase avec Uint8Array (typé et supporté)
+    // Upload Supabase avec Uint8Array
     const { error: upErr } = await supabaseAdmin.storage
       .from('factures')
       .upload(path, uint8, {
@@ -184,8 +159,7 @@ export async function GET(req: NextRequest) {
 
     if (upErr) {
       // Fallback direct: renvoyer le PDF
-      const pdfBlob = new Blob([ab], { type: 'application/pdf' });
-      return new NextResponse(pdfBlob, {
+      return new NextResponse(uint8, {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="Facture_${facture.numero}.pdf"`,
@@ -202,8 +176,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Fallback: renvoyer le flux binaire
-    const pdfBlob = new Blob([ab], { type: 'application/pdf' });
-    return new NextResponse(pdfBlob, {
+    return new NextResponse(uint8, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="Facture_${facture.numero}.pdf"`,
