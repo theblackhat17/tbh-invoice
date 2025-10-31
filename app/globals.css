@@ -5,15 +5,15 @@
 /* ========= Thème ========= */
 :root {
   --bg: 246 246 248;          /* #f6f6f8 */
-  --fg: 23 23 23;             /* #171717 */
-  --muted: 113 113 122;       /* zinc-500 */
+  --fg: 23 23 23;             /* #171717 - texte très foncé */
+  --muted: 82 82 91;          /* zinc-600 - plus foncé pour meilleur contraste */
   --brand: 37 99 235;         /* blue-600 */
   --brand-2: 2 132 199;       /* sky-600 */
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: 10 10 10;           /* #0a0a0a */
-    --fg: 237 237 237;        /* #ededed */
+    --fg: 250 250 250;        /* #fafafa - texte très clair */
     --muted: 161 161 170;     /* zinc-400 */
     --brand: 56 189 248;      /* sky-400 */
     --brand-2: 59 130 246;    /* blue-500 */
@@ -29,10 +29,10 @@ body {
   font-feature-settings: "cv02","cv03","cv04","cv11";
 }
 
-/* Subtle grid overlay */
+/* Subtle grid overlay - avec meilleur contraste */
 .bg-grid {
-  background-image: linear-gradient(to right, rgba(113,113,122,0.08) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(113,113,122,0.08) 1px, transparent 1px);
+  background-image: linear-gradient(to right, rgba(113,113,122,0.12) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(113,113,122,0.12) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
@@ -43,7 +43,7 @@ body {
   }
 
   .glass {
-    @apply bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md border border-zinc-200/60 dark:border-zinc-800/60;
+    @apply bg-white/80 dark:bg-zinc-900/70 backdrop-blur-md border border-zinc-200/70 dark:border-zinc-700/70;
   }
 
   .card {
@@ -60,14 +60,25 @@ body {
     @apply btn bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600;
   }
   .btn-ghost {
-    @apply btn bg-transparent hover:bg-black/5 dark:hover:bg-white/5;
+    @apply btn bg-transparent text-zinc-700 dark:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/10;
   }
 
   .nav-link {
     @apply rounded-xl px-3 py-2 text-sm font-medium text-zinc-200 hover:text-white hover:bg-white/10 transition-colors;
   }
   .nav-link-active {
-    @apply bg-white/15 text-white shadow-inner;
+    @apply bg-white/20 text-white shadow-inner;
+  }
+  
+  /* Classes utilitaires pour le texte */
+  .text-primary {
+    @apply text-zinc-900 dark:text-zinc-50;
+  }
+  .text-secondary {
+    @apply text-zinc-600 dark:text-zinc-300;
+  }
+  .text-muted {
+    @apply text-zinc-500 dark:text-zinc-400;
   }
 }
 
