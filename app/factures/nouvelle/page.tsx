@@ -203,7 +203,7 @@ export default function NouvelleFacturePage() {
 
               <div className="col-span-3 md:col-span-1 flex flex-col justify-end">
                 <label className="text-sm font-medium text-gray-500 mb-1">Total</label>
-                <div className="px-3 py-2 bg-gray-100 rounded-lg text-center font-semibold">
+                <div className="px-3 py-2 bg-gray-200 rounded-lg text-center font-semibold">
                   {(p.quantite * p.prixUnit).toFixed(2)} €
                 </div>
               </div>

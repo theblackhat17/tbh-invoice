@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
     // Logo/Nom entreprise (blanc sur bleu)
     page.drawText('TBH', {
       x: 50,
-      y: 825,
+      y: 500,
       size: 32,
       font: helvBold,
       color: white,
