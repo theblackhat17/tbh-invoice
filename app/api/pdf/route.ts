@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
     // === PDF ===
     const doc = new PDFDocument({ margin: 50 });
 
-    // Charger des polices TTF si disponibles (évite l’erreur Helvetica.afm en serverless)
+    // Polices TTF optionnelles (évite l’erreur Helvetica.afm en serverless)
     try {
       const regular = fs.readFileSync(new URL('./fonts/LibreFranklin-Regular.ttf', import.meta.url));
       const bold = fs.readFileSync(new URL('./fonts/LibreFranklin-Bold.ttf', import.meta.url));
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
     }
 
     // En-tête
-    (doc as any).font?.('bold'); // si police custom enregistrée
+    (doc as any).font?.('bold');
     doc.fontSize(24).text('TBH ONE', 50, 50);
 
     (doc as any).font?.('regular');
@@ -103,7 +103,9 @@ export async function GET(req: NextRequest) {
       .text('Siret : 91127899200019', 50, 125);
 
     (doc as any).font?.('bold');
-    doc.fontSize(20).text(`${facture.typeDocument} N°${facture.numero}`, 350, 50, { align: 'right' });
+    doc
+      .fontSize(20)
+      .text(`${facture.typeDocument} N°${facture.numero}`, 350, 50, { align: 'right' });
 
     // Client + date
     (doc as any).font?.('bold');
@@ -163,20 +165,26 @@ export async function GET(req: NextRequest) {
     doc.end();
     const buffer = await pdfToBuffer(doc);
 
-    // === Upload Supabase via Blob (pas de "as any") ===
-    const pdfBlob = new Blob([buffer], { type: 'application/pdf' });
+    // === Buffer -> ArrayBuffer -> Uint8Array (upload) ===
+    const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    const uint8 = new Uint8Array(ab);
 
     await ensureBucket();
     const yyyy = new Date(facture.date).getFullYear();
     const mm = String(new Date(facture.date).getMonth() + 1).padStart(2, '0');
     const path = `${yyyy}/${mm}/Facture_${facture.numero}_${facture.id}.pdf`;
 
+    // Upload Supabase avec Uint8Array (typé et supporté)
     const { error: upErr } = await supabaseAdmin.storage
       .from('factures')
-      .upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true });
+      .upload(path, uint8, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
 
     if (upErr) {
-      // Fallback direct si l’upload échoue
+      // Fallback direct: renvoyer le PDF
+      const pdfBlob = new Blob([ab], { type: 'application/pdf' });
       return new NextResponse(pdfBlob, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -194,6 +202,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Fallback: renvoyer le flux binaire
+    const pdfBlob = new Blob([ab], { type: 'application/pdf' });
     return new NextResponse(pdfBlob, {
       headers: {
         'Content-Type': 'application/pdf',
