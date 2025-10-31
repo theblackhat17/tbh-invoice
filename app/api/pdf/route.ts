@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-// Helper: bufferiser un PDFKit doc
 const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
   new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -14,7 +13,6 @@ const pdfToBuffer = (doc: InstanceType<typeof PDFDocument>) =>
     doc.on('error', reject);
   });
 
-// Crée le bucket Storage s'il n'existe pas
 async function ensureBucket() {
   const { data: list } = await supabaseAdmin.storage.listBuckets();
   if (!list?.find((b) => b.name === 'factures')) {
@@ -24,7 +22,6 @@ async function ensureBucket() {
   }
 }
 
-// Récupération facture + client + lignes depuis Supabase
 async function fetchFactureFull(id: string) {
   const { data: facture, error } = await supabaseAdmin
     .from('factures')
@@ -45,9 +42,7 @@ async function fetchFactureFull(id: string) {
     .eq('facture_id', id)
     .order('description');
 
-  if (err2) {
-    throw new Error(err2.message);
-  }
+  if (err2) throw new Error(err2.message);
 
   return {
     id: String(facture.id),
@@ -77,7 +72,7 @@ export async function GET(req: NextRequest) {
 
     const facture = await fetchFactureFull(id);
 
-    // === PDF ===
+    // Création PDF - SANS polices personnalisées
     const doc = new PDFDocument({ margin: 50 });
 
     // En-tête
@@ -97,12 +92,12 @@ export async function GET(req: NextRequest) {
       .text(`Adresse : ${facture.client.adresse}`, 350, 155);
 
     const dateFormatee = new Date(facture.date).toLocaleDateString('fr-FR');
-    doc.fillColor('#e74c3c').fontSize(10).text(`Date : ${dateFormatee}`, 350, 185, { align: 'right' });
+    doc.fillColor('#e74c3c').fontSize(10)
+      .text(`Date : ${dateFormatee}`, 350, 185, { align: 'right' });
     doc.fillColor('black');
 
     // Tableau
     const tableTop = 250, col1 = 50, col2 = 350, col3 = 450, col4 = 520;
-
     doc.fontSize(11);
     doc.rect(col1, tableTop, 500, 25).fillAndStroke('#f0f0f0', '#cccccc');
     doc.fillColor('#000')
@@ -113,7 +108,7 @@ export async function GET(req: NextRequest) {
 
     let y = tableTop + 35;
     doc.fontSize(10);
-    (facture.prestations ?? []).forEach((p, i) => {
+    facture.prestations.forEach((p, i) => {
       const bg = i % 2 ? '#f9f9f9' : '#ffffff';
       doc.rect(col1, y - 5, 500, 25).fillAndStroke(bg, '#e0e0e0');
       doc.fillColor('#000')
@@ -140,16 +135,14 @@ export async function GET(req: NextRequest) {
 
     doc.end();
     const buffer = await pdfToBuffer(doc);
-
-    // Conversion Buffer -> Uint8Array (compatible avec tout)
     const uint8 = new Uint8Array(buffer);
 
+    // Upload vers Supabase Storage
     await ensureBucket();
     const yyyy = new Date(facture.date).getFullYear();
     const mm = String(new Date(facture.date).getMonth() + 1).padStart(2, '0');
     const path = `${yyyy}/${mm}/Facture_${facture.numero}_${facture.id}.pdf`;
 
-    // Upload Supabase avec Uint8Array
     const { error: upErr } = await supabaseAdmin.storage
       .from('factures')
       .upload(path, uint8, {
@@ -158,7 +151,6 @@ export async function GET(req: NextRequest) {
       });
 
     if (upErr) {
-      // Fallback direct: renvoyer le PDF
       return new NextResponse(uint8, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -168,14 +160,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // URL publique + redirection
+    // Redirection vers l'URL publique
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
-    const url = pub?.publicUrl;
-    if (url) {
-      return NextResponse.redirect(url, 302);
+    if (pub?.publicUrl) {
+      return NextResponse.redirect(pub.publicUrl, 302);
     }
 
-    // Fallback: renvoyer le flux binaire
+    // Fallback
     return new NextResponse(uint8, {
       headers: {
         'Content-Type': 'application/pdf',
@@ -183,7 +174,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e: any) {
-    console.error('PDF error:', e?.message || e);
+    console.error('PDF error:', e);
     return NextResponse.json({ error: e?.message || 'Erreur PDF' }, { status: 500 });
   }
 }
