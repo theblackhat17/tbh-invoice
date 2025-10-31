@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
     // Couleurs modernes
-    const primary = rgb(0.231, 0.388, 0.922);      // Bleu #3B62EB
+    const primary = rgb(2, 10, 33);      // Bleu #0d1530ff
     const secondary = rgb(0.008, 0.518, 0.780);    // Cyan #0284C7
     const dark = rgb(0.091, 0.091, 0.091);         // Gris foncé #171717
     const lightGray = rgb(0.965, 0.965, 0.965);    // Gris clair #F6F6F6
@@ -88,21 +88,21 @@ export async function GET(req: NextRequest) {
     // Logo/Nom entreprise (blanc sur bleu)
     page.drawText('TBH', {
       x: 50,
-      y: 500,
+      y: 950,
       size: 32,
       font: helvBold,
       color: white,
     });
     page.drawText('ONE', {
       x: 110,
-      y: 825,
+      y: 950,
       size: 32,
       font: helvBold,
-      color: secondary,
+      color: white,
     });
 
     // Sous-titre
-    page.drawText('FACTURATION PROFESSIONNELLE', {
+    page.drawText('', {
       x: 50,
       y: 807,
       size: 8,
@@ -324,7 +324,7 @@ export async function GET(req: NextRequest) {
       y: 40,
       size: 14,
       font: helvBold,
-      color: rgb(0.9, 0.9, 0.9),
+      color: lightGray,
     });
 
     const pdfBytes = await pdf.save();
