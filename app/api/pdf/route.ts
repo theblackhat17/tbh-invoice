@@ -310,7 +310,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Note légale
-    page.drawText('TVA non applicable, article 293B du CGI', {
+    page.drawText('TA non applicable, article 293B du CGI', {
       x: 50,
       y: 15,
       size: 7,
