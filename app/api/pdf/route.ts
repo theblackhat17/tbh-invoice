@@ -32,7 +32,7 @@ async function fetchFactureFull(id: string) {
     .from('prestations')
     .select('description, quantite, prix_unit')
     .eq('facture_id', id)
-    .order('description');
+    .order('id');
 
   if (err2) throw new Error(err2.message);
 
@@ -54,50 +54,43 @@ async function fetchFactureFull(id: string) {
   };
 }
 
-/* --------------------- PDF helpers & theme --------------------- */
-const THEME = {
-  primary: rgb(0.05, 0.10, 0.22),    // #0d1a38
-  accent:  rgb(0.01, 0.52, 0.78),    // #0284c7
-  dark:    rgb(0.12, 0.12, 0.13),    // #1f2021
-  mid:     rgb(0.55, 0.55, 0.58),    // zinc-500
-  light:   rgb(0.965, 0.965, 0.975), // fond clair
-  white:   rgb(1, 1, 1),
-  rowAlt:  rgb(0.98, 0.98, 0.985),
+/* --------------------- PDF Theme --------------------- */
+const COLORS = {
+  navy: rgb(0.05, 0.1, 0.22),      // #0d1938 - bandeau header
+  blue: rgb(0.0, 0.45, 0.75),      // bleu vif
+  black: rgb(0.05, 0.05, 0.05),
+  gray: rgb(0.4, 0.4, 0.4),
+  lightGray: rgb(0.9, 0.9, 0.9),
+  white: rgb(1, 1, 1),
+  bgLight: rgb(0.98, 0.98, 0.99),
 };
 
 const A4 = { w: 595, h: 842 };
-const MARGIN = 50;
-const TABLE = {
-  colDesc: MARGIN,
-  colQty:  MARGIN + 300,
-  colPU:   MARGIN + 390,
-  colTot:  MARGIN + 475,
-  width:   A4.w - MARGIN * 2,
-  headerH: 26,
-  rowH:    22,
-};
-const SAFE_BOTTOM = 90; // on garde de la place pour le footer
+const M = 40; // marges
 
-function wrapText(text: string, maxChars = 72) {
+function formatPrice(n: number) {
+  return new Intl.NumberFormat('fr-FR', { 
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2 
+  }).format(n) + ' €';
+}
+
+function wrapText(text: string, maxChars = 60) {
   if (!text) return [''];
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let cur = '';
   for (const w of words) {
-    const t = cur ? cur + ' ' + w : w;
-    if (t.length > maxChars) {
-      if (cur) lines.push(cur);
+    const test = cur ? `${cur} ${w}` : w;
+    if (test.length > maxChars && cur) {
+      lines.push(cur);
       cur = w;
     } else {
-      cur = t;
+      cur = test;
     }
   }
   if (cur) lines.push(cur);
   return lines;
-}
-
-function currency(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
 /* --------------------- Route --------------------- */
@@ -109,159 +102,276 @@ export async function GET(req: NextRequest) {
     const f = await fetchFactureFull(id);
 
     const pdf = await PDFDocument.create();
-    const helv = await pdf.embedFont(StandardFonts.Helvetica);
-    const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-    let page = pdf.addPage([A4.w, A4.h]);
-    let currentY = A4.h - MARGIN;
+    const page = pdf.addPage([A4.w, A4.h]);
+    let y = A4.h - M;
 
-    /* ---------- Header bande + cartouche ---------- */
-    const headerH = 96;
-    page.drawRectangle({ x: 0, y: A4.h - headerH, width: A4.w, height: headerH, color: THEME.primary });
-
-    // Branding
-    page.drawText('TBH ONE', { x: MARGIN, y: A4.h - 36, size: 28, font: helvBold, color: THEME.white });
-
-    // Cartouche type + numéro
-    const badgeW = 230, badgeH = 50, badgeX = A4.w - MARGIN - badgeW, badgeY = A4.h - 30 - badgeH;
-    page.drawRectangle({ x: badgeX, y: badgeY, width: badgeW, height: badgeH, color: THEME.white });
-    page.drawText(f.typeDocument.toUpperCase(), { x: badgeX + 12, y: badgeY + 30, size: 10, font: helvBold, color: THEME.primary });
-    page.drawText(`N° ${f.numero}`,           { x: badgeX + 12, y: badgeY + 12, size: 14, font: helvBold, color: THEME.dark });
-
-    // Bande inférieure coordonnés + date
-    const topBelowHeader = A4.h - headerH - 18;
-    page.drawText('VANDEWALLE CLEMENT — TBH ONE', { x: MARGIN, y: topBelowHeader, size: 10, font: helv, color: THEME.dark });
-    page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: MARGIN, y: topBelowHeader - 14, size: 9, font: helv, color: THEME.mid });
-    page.drawText('SIRET : 911 278 992 00019', { x: MARGIN, y: topBelowHeader - 28, size: 9, font: helv, color: THEME.mid });
-
-    const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
-    page.drawText(dateFR, { x: badgeX, y: topBelowHeader - 28, size: 10, font: helv, color: THEME.mid });
-
-    currentY = topBelowHeader - 44;
-
-    /* ---------- Bloc client ---------- */
-    const cardH = 74;
-    page.drawRectangle({
-      x: MARGIN, y: currentY - cardH + 4,
-      width: A4.w - MARGIN * 2, height: cardH,
-      color: THEME.light, borderColor: THEME.accent, borderWidth: 1.5,
+    // ========== BANDEAU HEADER (bleu marine) ==========
+    const headerH = 100;
+    page.drawRectangle({ x: 0, y: A4.h - headerH, width: A4.w, height: headerH, color: COLORS.navy });
+    
+    // Logo / nom entreprise
+    page.drawText('TBH ONE', {
+      x: M,
+      y: A4.h - 50,
+      size: 32,
+      font: fontBold,
+      color: COLORS.white,
     });
-    page.drawText('FACTURÉ À', { x: MARGIN + 12, y: currentY - 10, size: 9, font: helvBold, color: THEME.accent });
-    page.drawText(f.client.nom, { x: MARGIN + 12, y: currentY - 26, size: 12, font: helvBold, color: THEME.dark });
+
+    // Cartouche "FACTURE N° xxx" (rectangle blanc en haut à droite)
+    const badgeW = 260;
+    const badgeH = 56;
+    const badgeX = A4.w - M - badgeW;
+    const badgeY = A4.h - 32 - badgeH;
+    
+    page.drawRectangle({
+      x: badgeX,
+      y: badgeY,
+      width: badgeW,
+      height: badgeH,
+      color: COLORS.white,
+    });
+    
+    page.drawText(f.typeDocument.toUpperCase(), {
+      x: badgeX + 15,
+      y: badgeY + 34,
+      size: 10,
+      font: fontBold,
+      color: COLORS.gray,
+    });
+    
+    page.drawText(`N° ${f.numero}`, {
+      x: badgeX + 15,
+      y: badgeY + 16,
+      size: 16,
+      font: fontBold,
+      color: COLORS.black,
+    });
+
+    y = A4.h - headerH - 20;
+
+    // ========== INFOS ENTREPRISE + DATE (3 colonnes) ==========
+    page.drawText('ENTREPRISE', { x: M, y, size: 9, font: fontBold, color: COLORS.gray });
+    page.drawText('ADRESSE', { x: M + 180, y, size: 9, font: fontBold, color: COLORS.gray });
+    page.drawText('SIRET', { x: M + 360, y, size: 9, font: fontBold, color: COLORS.gray });
+    
+    y -= 14;
+    page.drawText('VANDEWALLE CLEMENT — TBH ONE', { x: M, y, size: 10, font, color: COLORS.black });
+    page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: M + 180, y, size: 10, font, color: COLORS.black });
+    page.drawText('911 278 992 00019', { x: M + 360, y, size: 10, font, color: COLORS.black });
+
+    y -= 24;
+    const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
+    page.drawText(`Date : ${dateFR}`, { x: A4.w - M - 120, y, size: 10, font, color: COLORS.gray });
+
+    y -= 30;
+
+    // ========== BLOC CLIENT (cadre bleu clair) ==========
+    const clientBoxH = 80;
+    page.drawRectangle({
+      x: M,
+      y: y - clientBoxH,
+      width: A4.w - 2 * M,
+      height: clientBoxH,
+      color: COLORS.bgLight,
+      borderColor: COLORS.blue,
+      borderWidth: 1.5,
+    });
+
+    page.drawText('FACTURÉ À', {
+      x: M + 15,
+      y: y - 16,
+      size: 10,
+      font: fontBold,
+      color: COLORS.blue,
+    });
+
+    page.drawText(f.client.nom, {
+      x: M + 15,
+      y: y - 34,
+      size: 14,
+      font: fontBold,
+      color: COLORS.black,
+    });
 
     const addrLines = wrapText(f.client.adresse, 70);
-    addrLines.slice(0, 2).forEach((ln, i) => {
-      page.drawText(ln, { x: MARGIN + 12, y: currentY - 42 - i * 12, size: 10, font: helv, color: THEME.mid });
+    addrLines.slice(0, 2).forEach((line, i) => {
+      page.drawText(line, {
+        x: M + 15,
+        y: y - 50 - i * 14,
+        size: 10,
+        font,
+        color: COLORS.gray,
+      });
     });
 
-    currentY -= (cardH + 16);
+    y -= (clientBoxH + 24);
 
-    /* ---------- Fonctions tableau multipage ---------- */
-    const drawTableHeader = () => {
-      page.drawRectangle({ x: MARGIN - 5, y: currentY, width: TABLE.width + 10, height: TABLE.headerH, color: THEME.primary });
-      page.drawText('DESCRIPTION', { x: TABLE.colDesc + 4, y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
-      page.drawText('QTÉ',         { x: TABLE.colQty,     y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
-      page.drawText('PRIX U.',     { x: TABLE.colPU,      y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
-      page.drawText('TOTAL',       { x: TABLE.colTot,     y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
-      currentY -= TABLE.headerH;
-    };
+    // ========== TABLEAU PRESTATIONS ==========
+    const tableHeaderH = 28;
+    const rowH = 24;
+    
+    // Colonnes
+    const colDescX = M;
+    const colQtyX = A4.w - M - 270;
+    const colPUX = A4.w - M - 180;
+    const colTotalX = A4.w - M - 90;
 
-    const drawFooter = (pageNum: number, totalPages?: number) => {
-      const footerH = 82;
-      page.drawRectangle({ x: 0, y: 0, width: A4.w, height: footerH, color: rgb(0.96, 0.965, 0.97) });
-      page.drawText('INFORMATIONS BANCAIRES', { x: MARGIN, y: 58, size: 8, font: helvBold, color: THEME.primary });
-      page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: MARGIN, y: 44, size: 9, font: helv, color: THEME.dark });
-      page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: MARGIN, y: 30, size: 9, font: helv, color: THEME.mid });
+    // Header tableau
+    page.drawRectangle({
+      x: M - 5,
+      y: y - tableHeaderH,
+      width: A4.w - 2 * M + 10,
+      height: tableHeaderH,
+      color: COLORS.navy,
+    });
 
-      const label = totalPages ? `Page ${pageNum}/${totalPages}` : `Page ${pageNum}`;
-      page.drawText(label, { x: A4.w - MARGIN - 70, y: 14, size: 9, font: helv, color: THEME.mid });
-    };
+    page.drawText('DESCRIPTION', { x: colDescX + 8, y: y - 18, size: 11, font: fontBold, color: COLORS.white });
+    page.drawText('QTÉ', { x: colQtyX + 8, y: y - 18, size: 11, font: fontBold, color: COLORS.white });
+    page.drawText('PRIX U.', { x: colPUX + 8, y: y - 18, size: 11, font: fontBold, color: COLORS.white });
+    page.drawText('TOTAL', { x: colTotalX + 8, y: y - 18, size: 11, font: fontBold, color: COLORS.white });
 
-    const newPage = (pageNum: number) => {
-      drawFooter(pageNum);
-      page = pdf.addPage([A4.w, A4.h]);
-      currentY = A4.h - MARGIN;
-      // Redessiner un petit header de section sur les pages suivantes
-      page.drawText('TBH ONE — Prestations (suite)', { x: MARGIN, y: currentY, size: 10, font: helvBold, color: THEME.mid });
-      currentY -= 18;
-      drawTableHeader();
-    };
+    y -= tableHeaderH;
 
-    /* ---------- Tableau (avec pagination) ---------- */
-    let pageNum = 1;
-    drawTableHeader();
-
-    for (let i = 0; i < f.prestations.length; i++) {
-      const p = f.prestations[i];
-      const descLines = wrapText(p.description, 72);
-      const neededHeight = Math.max(TABLE.rowH, 14 + (descLines.length - 1) * 12);
-
-      if (currentY - neededHeight < SAFE_BOTTOM) {
-        newPage(++pageNum);
-      }
-
-      // alternance
-      if (i % 2 === 0) {
+    // Lignes prestations
+    f.prestations.forEach((p, idx) => {
+      const total = p.quantite * p.prixUnit;
+      
+      // Alternance de couleur
+      if (idx % 2 === 1) {
         page.drawRectangle({
-          x: MARGIN - 5, y: currentY - neededHeight + 4, width: TABLE.width + 10, height: neededHeight,
-          color: THEME.rowAlt,
+          x: M - 5,
+          y: y - rowH,
+          width: A4.w - 2 * M + 10,
+          height: rowH,
+          color: COLORS.bgLight,
         });
       }
 
-      // description multilignes
-      descLines.forEach((ln, idx) => {
-        page.drawText(ln, {
-          x: TABLE.colDesc + 4,
-          y: currentY - 2 - idx * 12,
-          size: 9,
-          font: helv,
-          color: THEME.dark,
-        });
+      page.drawText(p.description.substring(0, 60), {
+        x: colDescX + 8,
+        y: y - 16,
+        size: 10,
+        font,
+        color: COLORS.black,
       });
 
-      // autres colonnes (alignées sur la 1re ligne)
-      page.drawText(String(p.quantite), { x: TABLE.colQty + 12, y: currentY - 2, size: 9, font: helv, color: THEME.dark });
-      page.drawText(currency(p.prixUnit), { x: TABLE.colPU, y: currentY - 2, size: 9, font: helv, color: THEME.dark });
-      page.drawText(currency(p.quantite * p.prixUnit), { x: TABLE.colTot, y: currentY - 2, size: 9, font: helvBold, color: THEME.dark });
+      page.drawText(String(p.quantite), {
+        x: colQtyX + 20,
+        y: y - 16,
+        size: 10,
+        font,
+        color: COLORS.black,
+      });
 
-      currentY -= neededHeight;
-    }
+      page.drawText(formatPrice(p.prixUnit), {
+        x: colPUX + 8,
+        y: y - 16,
+        size: 10,
+        font,
+        color: COLORS.black,
+      });
 
-    // séparateur fin de tableau
-    page.drawRectangle({ x: MARGIN - 5, y: currentY + 6, width: TABLE.width + 10, height: 1, color: THEME.light });
+      page.drawText(formatPrice(total), {
+        x: colTotalX + 8,
+        y: y - 16,
+        size: 10,
+        font: fontBold,
+        color: COLORS.black,
+      });
 
-    /* ---------- Bloc total ---------- */
-    const totalCardW = 230, totalCardH = 62;
-    const totalX = A4.w - MARGIN - totalCardW;
-    const totalY = currentY - 40;
-
-    if (totalY < SAFE_BOTTOM) {
-      newPage(++pageNum);
-    }
-
-    page.drawRectangle({ x: totalX, y: totalY, width: totalCardW, height: totalCardH, color: THEME.primary });
-    page.drawText('TOTAL HT', { x: totalX + 14, y: totalY + 38, size: 11, font: helvBold, color: THEME.white });
-    page.drawText(currency(f.totalHT), { x: totalX + 14, y: totalY + 18, size: 18, font: helvBold, color: THEME.white });
-
-    page.drawText('TVA non applicable (art. 293B du CGI)', {
-      x: totalX - 260,
-      y: totalY + 10,
-      size: 8,
-      font: helv,
-      color: THEME.mid,
+      y -= rowH;
     });
 
-    // Footer de la dernière page avec numérotation finale
-    const totalPages = pageNum;
-    page.drawRectangle({ x: 0, y: 0, width: A4.w, height: 82, color: rgb(0.96, 0.965, 0.97) });
-    page.drawText('INFORMATIONS BANCAIRES', { x: MARGIN, y: 58, size: 8, font: helvBold, color: THEME.primary });
-    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: MARGIN, y: 44, size: 9, font: helv, color: THEME.dark });
-    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: MARGIN, y: 30, size: 9, font: helv, color: THEME.mid });
-    page.drawText(`Page ${totalPages}/${totalPages}`, { x: A4.w - MARGIN - 90, y: 14, size: 9, font: helv, color: THEME.mid });
+    y -= 16;
 
-    /* ---------- Save & Upload ---------- */
-    const pdfBytes = await pdf.save();      // Uint8Array
-    const buffer   = Buffer.from(pdfBytes); // pour fallback download
+    // ========== BLOC TOTAL (encart bleu marine en bas à droite) ==========
+    const totalBoxW = 240;
+    const totalBoxH = 70;
+    const totalBoxX = A4.w - M - totalBoxW;
+    const totalBoxY = y - totalBoxH;
+
+    page.drawRectangle({
+      x: totalBoxX,
+      y: totalBoxY,
+      width: totalBoxW,
+      height: totalBoxH,
+      color: COLORS.navy,
+    });
+
+    page.drawText('TOTAL HT', {
+      x: totalBoxX + 20,
+      y: totalBoxY + 44,
+      size: 12,
+      font: fontBold,
+      color: COLORS.white,
+    });
+
+    page.drawText(formatPrice(f.totalHT), {
+      x: totalBoxX + 20,
+      y: totalBoxY + 20,
+      size: 20,
+      font: fontBold,
+      color: COLORS.white,
+    });
+
+    // Note TVA
+    page.drawText('TVA non applicable (art. 293B du CGI)', {
+      x: M,
+      y: totalBoxY + 28,
+      size: 9,
+      font,
+      color: COLORS.gray,
+    });
+
+    // ========== FOOTER (infos bancaires) ==========
+    const footerY = 80;
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width: A4.w,
+      height: footerY,
+      color: COLORS.bgLight,
+    });
+
+    page.drawText('INFORMATIONS BANCAIRES', {
+      x: M,
+      y: 56,
+      size: 9,
+      font: fontBold,
+      color: COLORS.navy,
+    });
+
+    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', {
+      x: M,
+      y: 40,
+      size: 10,
+      font,
+      color: COLORS.black,
+    });
+
+    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', {
+      x: M,
+      y: 24,
+      size: 10,
+      font,
+      color: COLORS.gray,
+    });
+
+    page.drawText('TBH ONE', {
+      x: A4.w - M - 80,
+      y: 24,
+      size: 10,
+      font: fontBold,
+      color: COLORS.gray,
+    });
+
+    // ========== SAVE & UPLOAD ==========
+    const pdfBytes = await pdf.save();
+    const buffer = Buffer.from(pdfBytes);
 
     await ensureBucket();
     const yyyy = new Date(f.date).getFullYear();
@@ -273,12 +383,10 @@ export async function GET(req: NextRequest) {
       .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      // fallback: téléchargement direct
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': `attachment; filename="Facture_${f.numero}.pdf"`,
-          'X-Upload-Error': upErr.message,
           'Cache-Control': 'no-store',
         },
       });
@@ -287,7 +395,6 @@ export async function GET(req: NextRequest) {
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
 
-    // dernier fallback
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
