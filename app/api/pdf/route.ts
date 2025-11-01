@@ -88,17 +88,17 @@ export async function GET(req: NextRequest) {
     // Logo/Nom entreprise (blanc sur bleu)
     page.drawText('TBH', {
       x: 50,
-      y: 750,
+      y: 200,
       size: 32,
       font: helvBold,
-      color: dark,
+      color: white,
     });
     page.drawText('ONE', {
       x: 110,
-      y: 750,
+      y: 200,
       size: 32,
       font: helvBold,
-      color: dark,
+      color: white,
     });
 
     // Sous-titre
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
       y: 807,
       size: 8,
       font: helv,
-      color: rgb(0.9, 0.9, 0.9),
+      color: dark,
     });
 
     // Infos entreprise (blanc)
