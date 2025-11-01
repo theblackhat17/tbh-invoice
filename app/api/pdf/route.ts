@@ -88,14 +88,14 @@ export async function GET(req: NextRequest) {
     // Logo/Nom entreprise (blanc sur bleu)
     page.drawText('TBH', {
       x: 50,
-      y: 950,
+      y: 750,
       size: 32,
       font: helvBold,
       color: white,
     });
     page.drawText('ONE', {
       x: 110,
-      y: 950,
+      y: 750,
       size: 32,
       font: helvBold,
       color: white,
@@ -310,7 +310,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Note légale
-    page.drawText('TA non applicable, article 293B du CGI', {
+    page.drawText('TVA non applicable, article 293B du CGI', {
       x: 50,
       y: 15,
       size: 7,
