@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Logo/Nom entreprise (blanc sur bleu)
-    page.drawText('', {
+    page.drawText('TBH', {
       x: 50,
       y: 950,
       size: 32,
