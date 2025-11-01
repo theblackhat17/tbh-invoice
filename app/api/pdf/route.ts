@@ -91,14 +91,14 @@ export async function GET(req: NextRequest) {
       y: 750,
       size: 32,
       font: helvBold,
-      color: white,
+      color: dark,
     });
     page.drawText('ONE', {
       x: 110,
       y: 750,
       size: 32,
       font: helvBold,
-      color: white,
+      color: dark,
     });
 
     // Sous-titre
