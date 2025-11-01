@@ -6,13 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+/* ------------------------------ Supabase ------------------------------ */
+
 async function ensureBucket() {
   const { data } = await supabaseAdmin.storage.listBuckets();
   if (!data?.some((b) => b.name === 'factures')) {
-    await supabaseAdmin.storage.createBucket('factures', {
-      public: true,
-      fileSizeLimit: '20mb',
-    }).catch(() => void 0);
+    await supabaseAdmin.storage
+      .createBucket('factures', { public: true, fileSizeLimit: '20mb' })
+      .catch(() => void 0);
   }
 }
 
@@ -54,6 +55,48 @@ async function fetchFactureFull(id: string) {
   };
 }
 
+/* ------------------------------ Helpers PDF ------------------------------ */
+
+type Fonts = {
+  helv: any;
+  helvBold: any;
+};
+
+function wrapText(txt: string, maxChars = 60) {
+  if (!txt) return [''];
+  const words = txt.split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if ((cur + ' ' + w).trim().length > maxChars) {
+      lines.push(cur.trim());
+      cur = w;
+    } else {
+      cur = (cur + ' ' + w).trim();
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function drawLabeledValue(
+  page: any,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  fonts: Fonts,
+  labelSize = 9,
+  valueSize = 10,
+  labelColor = rgb(0.35, 0.35, 0.4),
+  valueColor = rgb(0.12, 0.12, 0.12)
+) {
+  page.drawText(label, { x, y, size: labelSize, font: fonts.helvBold, color: labelColor });
+  page.drawText(value, { x, y: y - 13, size: valueSize, font: fonts.helv, color: valueColor });
+}
+
+/* ------------------------------ Route ------------------------------ */
+
 export async function GET(req: NextRequest) {
   try {
     const id = new URL(req.url).searchParams.get('id');
@@ -61,276 +104,194 @@ export async function GET(req: NextRequest) {
 
     const f = await fetchFactureFull(id);
 
-    // === Génération PDF moderne et élégant ===
+    // === PDF setup ===
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([595, 842]); // A4
     const helv = await pdf.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const fonts: Fonts = { helv, helvBold };
 
-    // Couleurs modernes
-    const primary = rgb(0.0078, 0.0392, 0.1294);     // Bleu #0d1530ff
-    const secondary = rgb(0.008, 0.518, 0.780);    // Cyan #0284C7
-    const dark = rgb(0.091, 0.091, 0.091);         // Gris foncé #171717
-    const lightGray = rgb(0.965, 0.965, 0.965);    // Gris clair #F6F6F6
-    const mediumGray = rgb(0.556, 0.556, 0.576);   // Zinc-500
-    const white = rgb(1, 1, 1);
+    // Palette moderne
+    const primary = rgb(0.05, 0.10, 0.22);   // #0d1a38
+    const accent  = rgb(0.01, 0.52, 0.78);   // #0284c7
+    const dark    = rgb(0.10, 0.10, 0.10);   // #191919
+    const light   = rgb(0.965, 0.965, 0.975); // gris clair
+    const mid     = rgb(0.55, 0.55, 0.58);   // zinc-500
+    const white   = rgb(1, 1, 1);
 
-    // === HEADER AVEC BANDE BLEUE ===
-    // Bande bleue en haut
-    page.drawRectangle({
-      x: 0,
-      y: 792,
-      width: 595,
-      height: 100,
-      color: primary,
-    });
+    const pageW = 595;
+    const pageH = 842;
+    const margin = 50;
 
-    // Logo/Nom entreprise (blanc sur bleu)
-    page.drawText('TBH', {
-      x: 50,
-      y: 200,
-      size: 32,
-      font: helvBold,
-      color: white,
-    });
-    page.drawText('ONE', {
-      x: 110,
-      y: 200,
-      size: 32,
+    /* ------------------------------ Header ------------------------------ */
+
+    const headerH = 96;
+    page.drawRectangle({ x: 0, y: pageH - headerH, width: pageW, height: headerH, color: primary });
+
+    // Logo / branding (blanc sur bande)
+    page.drawText('TBH ONE', {
+      x: margin,
+      y: pageH - 34,
+      size: 28,
       font: helvBold,
       color: white,
     });
 
-    // Sous-titre
-    page.drawText('', {
-      x: 50,
-      y: 807,
-      size: 8,
-      font: helv,
-      color: dark,
-    });
+    // Cartouche Type + Numéro (à droite, dans la bande)
+    const badgeW = 220;
+    const badgeH = 48;
+    const badgeX = pageW - margin - badgeW;
+    const badgeY = pageH - 30 - badgeH;
 
-    // Infos entreprise (blanc)
-    page.drawText('VANDEWALLE CLEMENT', { x: 50, y: 780, size: 9, font: helv, color: white });
-    page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: 50, y: 767, size: 9, font: helv, color: white });
-    page.drawText('SIRET : 911 278 992 00019', { x: 50, y: 754, size: 9, font: helv, color: white });
-
-    // Type de document + Numéro (encadré blanc à droite)
-    page.drawRectangle({
-      x: 370,
-      y: 772,
-      width: 175,
-      height: 50,
-      color: white,
-      borderColor: white,
-      borderWidth: 1,
-    });
-
+    page.drawRectangle({ x: badgeX, y: badgeY, width: badgeW, height: badgeH, color: white });
     page.drawText(f.typeDocument.toUpperCase(), {
-      x: 380,
-      y: 805,
+      x: badgeX + 12,
+      y: badgeY + 28,
       size: 10,
       font: helvBold,
       color: primary,
     });
-
     page.drawText(`N° ${f.numero}`, {
-      x: 380,
-      y: 787,
-      size: 16,
+      x: badgeX + 12,
+      y: badgeY + 10,
+      size: 14,
       font: helvBold,
       color: dark,
     });
 
-    // Date
+    // Coordonnées société (sous la bande, couleurs lisibles)
+    const topBelowHeader = pageH - headerH - 18;
+    drawLabeledValue(page, 'ENTREPRISE', 'VANDEWALLE CLEMENT — TBH ONE', margin, topBelowHeader, fonts);
+    drawLabeledValue(page, 'ADRESSE', '39 Avenue Émile Zola, 59800 Lille', margin + 210, topBelowHeader, fonts);
+    drawLabeledValue(page, 'SIRET', '911 278 992 00019', margin + 420, topBelowHeader, fonts);
+
+    // Date à droite sous la bande
     const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
     page.drawText(dateFR, {
-      x: 380,
-      y: 770,
-      size: 9,
+      x: badgeX,
+      y: topBelowHeader - 26,
+      size: 10,
       font: helv,
-      color: mediumGray,
+      color: mid,
     });
 
-    // === BLOC CLIENT (encadré moderne) ===
+    /* ------------------------------ Bloc client ------------------------------ */
+
+    // Carte "client" (verre dépoli: fond clair + bord accent)
+    const clientCardY = topBelowHeader - 80;
     page.drawRectangle({
-      x: 50,
-      y: 630,
-      width: 250,
-      height: 80,
-      color: lightGray,
-      borderColor: primary,
-      borderWidth: 2,
+      x: margin,
+      y: clientCardY,
+      width: pageW - margin * 2,
+      height: 70,
+      color: light,
+      borderColor: accent,
+      borderWidth: 1.5,
     });
 
     page.drawText('FACTURÉ À', {
-      x: 60,
-      y: 695,
+      x: margin + 12,
+      y: clientCardY + 48,
       size: 9,
       font: helvBold,
-      color: primary,
+      color: accent,
     });
 
     page.drawText(f.client.nom, {
-      x: 60,
-      y: 675,
-      size: 11,
+      x: margin + 12,
+      y: clientCardY + 30,
+      size: 12,
       font: helvBold,
       color: dark,
     });
 
-    page.drawText(f.client.adresse, {
-      x: 60,
-      y: 658,
-      size: 9,
-      font: helv,
-      color: mediumGray,
+    // Adresse (wrap)
+    const addressLines = wrapText(f.client.adresse, 70);
+    addressLines.slice(0, 2).forEach((ln, i) => {
+      page.drawText(ln, {
+        x: margin + 12,
+        y: clientCardY + 14 - i * 12,
+        size: 10,
+        font: helv,
+        color: mid,
+      });
     });
 
-    // === TABLEAU DES PRESTATIONS (design moderne) ===
-    let tableY = 590;
-    const col1 = 50;
-    const col2 = 340;
-    const col3 = 420;
-    const col4 = 500;
+    /* ------------------------------ Tableau prestations ------------------------------ */
 
-    // En-tête du tableau (fond bleu)
-    page.drawRectangle({
-      x: 45,
-      y: tableY - 5,
-      width: 505,
-      height: 25,
-      color: primary,
-    });
+    let tableY = clientCardY - 24;
+    const colDesc = margin;
+    const colQty  = margin + 300;
+    const colPU   = margin + 380;
+    const colTot  = margin + 470;
+    const tableW  = pageW - margin * 2;
 
-    page.drawText('DESCRIPTION', { x: col1 + 5, y: tableY + 3, size: 10, font: helvBold, color: white });
-    page.drawText('QTÉ', { x: col2, y: tableY + 3, size: 10, font: helvBold, color: white });
-    page.drawText('PRIX U.', { x: col3, y: tableY + 3, size: 10, font: helvBold, color: white });
-    page.drawText('TOTAL', { x: col4, y: tableY + 3, size: 10, font: helvBold, color: white });
+    // En-tête
+    page.drawRectangle({ x: margin - 5, y: tableY, width: tableW + 10, height: 26, color: primary });
+    page.drawText('DESCRIPTION', { x: colDesc + 4, y: tableY + 6, size: 10, font: helvBold, color: white });
+    page.drawText('QTÉ',         { x: colQty,       y: tableY + 6, size: 10, font: helvBold, color: white });
+    page.drawText('PRIX U.',     { x: colPU,        y: tableY + 6, size: 10, font: helvBold, color: white });
+    page.drawText('TOTAL',       { x: colTot,       y: tableY + 6, size: 10, font: helvBold, color: white });
 
-    tableY -= 30;
+    tableY -= 24;
 
-    // Lignes du tableau (alternance de couleurs)
-    f.prestations.forEach((p, index) => {
-      // Fond alterné
-      if (index % 2 === 0) {
-        page.drawRectangle({
-          x: 45,
-          y: tableY - 5,
-          width: 505,
-          height: 22,
-          color: rgb(0.98, 0.98, 0.98),
-        });
+    const rowH = 22;
+    f.prestations.forEach((p, i) => {
+      const isEven = i % 2 === 0;
+      if (isEven) {
+        page.drawRectangle({ x: margin - 5, y: tableY - 4, width: tableW + 10, height: rowH, color: rgb(0.98, 0.98, 0.985) });
       }
 
-      const desc = p.description.length > 45 ? p.description.slice(0, 42) + '...' : p.description;
-      
-      page.drawText(desc, { x: col1 + 5, y: tableY, size: 9, font: helv, color: dark });
-      page.drawText(String(p.quantite), { x: col2 + 10, y: tableY, size: 9, font: helv, color: dark });
-      page.drawText(`${p.prixUnit.toFixed(2)} €`, { x: col3, y: tableY, size: 9, font: helv, color: dark });
-      page.drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, { x: col4, y: tableY, size: 9, font: helvBold, color: dark });
-      
-      tableY -= 24;
+      // Description avec coupe douce
+      const desc = p.description.length > 72 ? p.description.slice(0, 69) + '…' : p.description;
+      page.drawText(desc, { x: colDesc + 4, y: tableY + 2, size: 9, font: helv, color: dark });
+      page.drawText(String(p.quantite), { x: colQty + 12, y: tableY + 2, size: 9, font: helv, color: dark });
+      page.drawText(`${p.prixUnit.toFixed(2)} €`, { x: colPU, y: tableY + 2, size: 9, font: helv, color: dark });
+      page.drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, { x: colTot, y: tableY + 2, size: 9, font: helvBold, color: dark });
+
+      tableY -= rowH;
     });
 
-    // Ligne de séparation
-    page.drawLine({
-      start: { x: 45, y: tableY + 10 },
-      end: { x: 550, y: tableY + 10 },
-      thickness: 1,
-      color: lightGray,
-    });
+    // Séparateur fin de tableau
+    page.drawRectangle({ x: margin - 5, y: tableY + 6, width: tableW + 10, height: 1, color: light });
 
-    // === TOTAL (encadré bleu moderne) ===
-    tableY -= 30;
-    page.drawRectangle({
-      x: 380,
-      y: tableY - 10,
-      width: 170,
-      height: 45,
-      color: primary,
-    });
+    /* ------------------------------ Bloc total ------------------------------ */
 
-    page.drawText('TOTAL HT', {
-      x: 390,
-      y: tableY + 15,
-      size: 11,
-      font: helvBold,
-      color: white,
-    });
+    const totalCardW = 210;
+    const totalCardH = 60;
+    const totalX = pageW - margin - totalCardW;
+    const totalY = tableY - 36;
 
-    page.drawText(`${f.totalHT.toFixed(2)} €`, {
-      x: 450,
-      y: tableY + 15,
-      size: 18,
-      font: helvBold,
-      color: white,
-    });
+    // Carte total en accent (coins doux)
+    page.drawRectangle({ x: totalX, y: totalY, width: totalCardW, height: totalCardH, color: primary });
+    page.drawText('TOTAL HT', { x: totalX + 14, y: totalY + 36, size: 11, font: helvBold, color: white });
+    page.drawText(`${f.totalHT.toFixed(2)} €`, { x: totalX + 14, y: totalY + 16, size: 18, font: helvBold, color: white });
 
-    page.drawText('TVA non applicable', {
-      x: 390,
-      y: tableY - 2,
+    // Mention TVA
+    page.drawText('TVA non applicable (art. 293B du CGI)', {
+      x: totalX - 250,
+      y: totalY + 8,
       size: 8,
       font: helv,
-      color: rgb(0.9, 0.9, 0.9),
+      color: mid,
     });
 
-    // === FOOTER (bande grise élégante) ===
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: 595,
-      height: 80,
-      color: rgb(0.95, 0.95, 0.95),
-    });
+    /* ------------------------------ Footer ------------------------------ */
 
-    // Infos de paiement
-    page.drawText('INFORMATIONS BANCAIRES', {
-      x: 50,
-      y: 60,
-      size: 8,
-      font: helvBold,
-      color: primary,
-    });
+    const footerH = 82;
+    page.drawRectangle({ x: 0, y: 0, width: pageW, height: footerH, color: rgb(0.96, 0.965, 0.97) });
 
-    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', {
-      x: 50,
-      y: 45,
-      size: 9,
-      font: helv,
-      color: dark,
-    });
+    page.drawText('INFORMATIONS BANCAIRES', { x: margin, y: 58, size: 8, font: helvBold, color: primary });
+    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: margin, y: 44, size: 9, font: helv, color: dark });
+    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: margin, y: 30, size: 9, font: helv, color: mid });
 
-    page.drawText('Titulaire : VANDEWALLE CLEMENT | REVOLUT', {
-      x: 50,
-      y: 32,
-      size: 9,
-      font: helv,
-      color: mediumGray,
-    });
+    page.drawText('TBH ONE', { x: pageW - margin - 60, y: 34, size: 12, font: helvBold, color: rgb(0.88, 0.89, 0.90) });
 
-    // Note légale
-    page.drawText('TVA non applicable, article 293B du CGI', {
-      x: 50,
-      y: 15,
-      size: 7,
-      font: helv,
-      color: mediumGray,
-    });
+    /* ------------------------------ Save & Upload ------------------------------ */
 
-    // Petit logo/watermark en bas à droite
-    page.drawText('TBH ONE', {
-      x: 480,
-      y: 40,
-      size: 14,
-      font: helvBold,
-      color: lightGray,
-    });
+    const pdfBytes = await pdf.save(); // Uint8Array (parfait pour Supabase upload)
+    const buffer = Buffer.from(pdfBytes); // pour fallback download
 
-    const pdfBytes = await pdf.save();
-    const buffer = Buffer.from(pdfBytes);
-
-    // === Upload Supabase ===
     await ensureBucket();
     const yyyy = new Date(f.date).getFullYear();
     const mm = String(new Date(f.date).getMonth() + 1).padStart(2, '0');
@@ -341,6 +302,7 @@ export async function GET(req: NextRequest) {
       .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
+      // fallback: download direct si l’upload échoue
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -354,6 +316,7 @@ export async function GET(req: NextRequest) {
     const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
     if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
 
+    // dernier fallback
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
