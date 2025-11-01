@@ -6,8 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-/* ------------------------------ Supabase ------------------------------ */
-
+/* --------------------- Supabase helpers --------------------- */
 async function ensureBucket() {
   const { data } = await supabaseAdmin.storage.listBuckets();
   if (!data?.some((b) => b.name === 'factures')) {
@@ -55,48 +54,53 @@ async function fetchFactureFull(id: string) {
   };
 }
 
-/* ------------------------------ Helpers PDF ------------------------------ */
-
-type Fonts = {
-  helv: any;
-  helvBold: any;
+/* --------------------- PDF helpers & theme --------------------- */
+const THEME = {
+  primary: rgb(0.05, 0.10, 0.22),    // #0d1a38
+  accent:  rgb(0.01, 0.52, 0.78),    // #0284c7
+  dark:    rgb(0.12, 0.12, 0.13),    // #1f2021
+  mid:     rgb(0.55, 0.55, 0.58),    // zinc-500
+  light:   rgb(0.965, 0.965, 0.975), // fond clair
+  white:   rgb(1, 1, 1),
+  rowAlt:  rgb(0.98, 0.98, 0.985),
 };
 
-function wrapText(txt: string, maxChars = 60) {
-  if (!txt) return [''];
-  const words = txt.split(/\s+/);
+const A4 = { w: 595, h: 842 };
+const MARGIN = 50;
+const TABLE = {
+  colDesc: MARGIN,
+  colQty:  MARGIN + 300,
+  colPU:   MARGIN + 390,
+  colTot:  MARGIN + 475,
+  width:   A4.w - MARGIN * 2,
+  headerH: 26,
+  rowH:    22,
+};
+const SAFE_BOTTOM = 90; // on garde de la place pour le footer
+
+function wrapText(text: string, maxChars = 72) {
+  if (!text) return [''];
+  const words = text.split(/\s+/);
   const lines: string[] = [];
   let cur = '';
   for (const w of words) {
-    if ((cur + ' ' + w).trim().length > maxChars) {
-      lines.push(cur.trim());
+    const t = cur ? cur + ' ' + w : w;
+    if (t.length > maxChars) {
+      if (cur) lines.push(cur);
       cur = w;
     } else {
-      cur = (cur + ' ' + w).trim();
+      cur = t;
     }
   }
   if (cur) lines.push(cur);
   return lines;
 }
 
-function drawLabeledValue(
-  page: any,
-  label: string,
-  value: string,
-  x: number,
-  y: number,
-  fonts: Fonts,
-  labelSize = 9,
-  valueSize = 10,
-  labelColor = rgb(0.35, 0.35, 0.4),
-  valueColor = rgb(0.12, 0.12, 0.12)
-) {
-  page.drawText(label, { x, y, size: labelSize, font: fonts.helvBold, color: labelColor });
-  page.drawText(value, { x, y: y - 13, size: valueSize, font: fonts.helv, color: valueColor });
+function currency(n: number) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-/* ------------------------------ Route ------------------------------ */
-
+/* --------------------- Route --------------------- */
 export async function GET(req: NextRequest) {
   try {
     const id = new URL(req.url).searchParams.get('id');
@@ -104,193 +108,160 @@ export async function GET(req: NextRequest) {
 
     const f = await fetchFactureFull(id);
 
-    // === PDF setup ===
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([595, 842]); // A4
     const helv = await pdf.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const fonts: Fonts = { helv, helvBold };
 
-    // Palette moderne
-    const primary = rgb(0.05, 0.10, 0.22);   // #0d1a38
-    const accent  = rgb(0.01, 0.52, 0.78);   // #0284c7
-    const dark    = rgb(0.10, 0.10, 0.10);   // #191919
-    const light   = rgb(0.965, 0.965, 0.975); // gris clair
-    const mid     = rgb(0.55, 0.55, 0.58);   // zinc-500
-    const white   = rgb(1, 1, 1);
+    let page = pdf.addPage([A4.w, A4.h]);
+    let currentY = A4.h - MARGIN;
 
-    const pageW = 595;
-    const pageH = 842;
-    const margin = 50;
-
-    /* ------------------------------ Header ------------------------------ */
-
+    /* ---------- Header bande + cartouche ---------- */
     const headerH = 96;
-    page.drawRectangle({ x: 0, y: pageH - headerH, width: pageW, height: headerH, color: primary });
+    page.drawRectangle({ x: 0, y: A4.h - headerH, width: A4.w, height: headerH, color: THEME.primary });
 
-    // Logo / branding (blanc sur bande)
-    page.drawText('TBH ONE', {
-      x: margin,
-      y: pageH - 34,
-      size: 28,
-      font: helvBold,
-      color: white,
-    });
+    // Branding
+    page.drawText('TBH ONE', { x: MARGIN, y: A4.h - 36, size: 28, font: helvBold, color: THEME.white });
 
-    // Cartouche Type + Numéro (à droite, dans la bande)
-    const badgeW = 220;
-    const badgeH = 48;
-    const badgeX = pageW - margin - badgeW;
-    const badgeY = pageH - 30 - badgeH;
+    // Cartouche type + numéro
+    const badgeW = 230, badgeH = 50, badgeX = A4.w - MARGIN - badgeW, badgeY = A4.h - 30 - badgeH;
+    page.drawRectangle({ x: badgeX, y: badgeY, width: badgeW, height: badgeH, color: THEME.white });
+    page.drawText(f.typeDocument.toUpperCase(), { x: badgeX + 12, y: badgeY + 30, size: 10, font: helvBold, color: THEME.primary });
+    page.drawText(`N° ${f.numero}`,           { x: badgeX + 12, y: badgeY + 12, size: 14, font: helvBold, color: THEME.dark });
 
-    page.drawRectangle({ x: badgeX, y: badgeY, width: badgeW, height: badgeH, color: white });
-    page.drawText(f.typeDocument.toUpperCase(), {
-      x: badgeX + 12,
-      y: badgeY + 28,
-      size: 10,
-      font: helvBold,
-      color: primary,
-    });
-    page.drawText(`N° ${f.numero}`, {
-      x: badgeX + 12,
-      y: badgeY + 10,
-      size: 14,
-      font: helvBold,
-      color: dark,
-    });
+    // Bande inférieure coordonnés + date
+    const topBelowHeader = A4.h - headerH - 18;
+    page.drawText('VANDEWALLE CLEMENT — TBH ONE', { x: MARGIN, y: topBelowHeader, size: 10, font: helv, color: THEME.dark });
+    page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: MARGIN, y: topBelowHeader - 14, size: 9, font: helv, color: THEME.mid });
+    page.drawText('SIRET : 911 278 992 00019', { x: MARGIN, y: topBelowHeader - 28, size: 9, font: helv, color: THEME.mid });
 
-    // Coordonnées société (sous la bande, couleurs lisibles)
-    const topBelowHeader = pageH - headerH - 18;
-    drawLabeledValue(page, 'ENTREPRISE', 'VANDEWALLE CLEMENT — TBH ONE', margin, topBelowHeader, fonts);
-    drawLabeledValue(page, 'ADRESSE', '39 Avenue Émile Zola, 59800 Lille', margin + 210, topBelowHeader, fonts);
-    drawLabeledValue(page, 'SIRET', '911 278 992 00019', margin + 420, topBelowHeader, fonts);
-
-    // Date à droite sous la bande
     const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
-    page.drawText(dateFR, {
-      x: badgeX,
-      y: topBelowHeader - 26,
-      size: 10,
-      font: helv,
-      color: mid,
-    });
+    page.drawText(dateFR, { x: badgeX, y: topBelowHeader - 28, size: 10, font: helv, color: THEME.mid });
 
-    /* ------------------------------ Bloc client ------------------------------ */
+    currentY = topBelowHeader - 44;
 
-    // Carte "client" (verre dépoli: fond clair + bord accent)
-    const clientCardY = topBelowHeader - 80;
+    /* ---------- Bloc client ---------- */
+    const cardH = 74;
     page.drawRectangle({
-      x: margin,
-      y: clientCardY,
-      width: pageW - margin * 2,
-      height: 70,
-      color: light,
-      borderColor: accent,
-      borderWidth: 1.5,
+      x: MARGIN, y: currentY - cardH + 4,
+      width: A4.w - MARGIN * 2, height: cardH,
+      color: THEME.light, borderColor: THEME.accent, borderWidth: 1.5,
+    });
+    page.drawText('FACTURÉ À', { x: MARGIN + 12, y: currentY - 10, size: 9, font: helvBold, color: THEME.accent });
+    page.drawText(f.client.nom, { x: MARGIN + 12, y: currentY - 26, size: 12, font: helvBold, color: THEME.dark });
+
+    const addrLines = wrapText(f.client.adresse, 70);
+    addrLines.slice(0, 2).forEach((ln, i) => {
+      page.drawText(ln, { x: MARGIN + 12, y: currentY - 42 - i * 12, size: 10, font: helv, color: THEME.mid });
     });
 
-    page.drawText('FACTURÉ À', {
-      x: margin + 12,
-      y: clientCardY + 48,
-      size: 9,
-      font: helvBold,
-      color: accent,
-    });
+    currentY -= (cardH + 16);
 
-    page.drawText(f.client.nom, {
-      x: margin + 12,
-      y: clientCardY + 30,
-      size: 12,
-      font: helvBold,
-      color: dark,
-    });
+    /* ---------- Fonctions tableau multipage ---------- */
+    const drawTableHeader = () => {
+      page.drawRectangle({ x: MARGIN - 5, y: currentY, width: TABLE.width + 10, height: TABLE.headerH, color: THEME.primary });
+      page.drawText('DESCRIPTION', { x: TABLE.colDesc + 4, y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
+      page.drawText('QTÉ',         { x: TABLE.colQty,     y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
+      page.drawText('PRIX U.',     { x: TABLE.colPU,      y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
+      page.drawText('TOTAL',       { x: TABLE.colTot,     y: currentY + 6, size: 10, font: helvBold, color: THEME.white });
+      currentY -= TABLE.headerH;
+    };
 
-    // Adresse (wrap)
-    const addressLines = wrapText(f.client.adresse, 70);
-    addressLines.slice(0, 2).forEach((ln, i) => {
-      page.drawText(ln, {
-        x: margin + 12,
-        y: clientCardY + 14 - i * 12,
-        size: 10,
-        font: helv,
-        color: mid,
-      });
-    });
+    const drawFooter = (pageNum: number, totalPages?: number) => {
+      const footerH = 82;
+      page.drawRectangle({ x: 0, y: 0, width: A4.w, height: footerH, color: rgb(0.96, 0.965, 0.97) });
+      page.drawText('INFORMATIONS BANCAIRES', { x: MARGIN, y: 58, size: 8, font: helvBold, color: THEME.primary });
+      page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: MARGIN, y: 44, size: 9, font: helv, color: THEME.dark });
+      page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: MARGIN, y: 30, size: 9, font: helv, color: THEME.mid });
 
-    /* ------------------------------ Tableau prestations ------------------------------ */
+      const label = totalPages ? `Page ${pageNum}/${totalPages}` : `Page ${pageNum}`;
+      page.drawText(label, { x: A4.w - MARGIN - 70, y: 14, size: 9, font: helv, color: THEME.mid });
+    };
 
-    let tableY = clientCardY - 24;
-    const colDesc = margin;
-    const colQty  = margin + 300;
-    const colPU   = margin + 380;
-    const colTot  = margin + 470;
-    const tableW  = pageW - margin * 2;
+    const newPage = (pageNum: number) => {
+      drawFooter(pageNum);
+      page = pdf.addPage([A4.w, A4.h]);
+      currentY = A4.h - MARGIN;
+      // Redessiner un petit header de section sur les pages suivantes
+      page.drawText('TBH ONE — Prestations (suite)', { x: MARGIN, y: currentY, size: 10, font: helvBold, color: THEME.mid });
+      currentY -= 18;
+      drawTableHeader();
+    };
 
-    // En-tête
-    page.drawRectangle({ x: margin - 5, y: tableY, width: tableW + 10, height: 26, color: primary });
-    page.drawText('DESCRIPTION', { x: colDesc + 4, y: tableY + 6, size: 10, font: helvBold, color: white });
-    page.drawText('QTÉ',         { x: colQty,       y: tableY + 6, size: 10, font: helvBold, color: white });
-    page.drawText('PRIX U.',     { x: colPU,        y: tableY + 6, size: 10, font: helvBold, color: white });
-    page.drawText('TOTAL',       { x: colTot,       y: tableY + 6, size: 10, font: helvBold, color: white });
+    /* ---------- Tableau (avec pagination) ---------- */
+    let pageNum = 1;
+    drawTableHeader();
 
-    tableY -= 24;
+    for (let i = 0; i < f.prestations.length; i++) {
+      const p = f.prestations[i];
+      const descLines = wrapText(p.description, 72);
+      const neededHeight = Math.max(TABLE.rowH, 14 + (descLines.length - 1) * 12);
 
-    const rowH = 22;
-    f.prestations.forEach((p, i) => {
-      const isEven = i % 2 === 0;
-      if (isEven) {
-        page.drawRectangle({ x: margin - 5, y: tableY - 4, width: tableW + 10, height: rowH, color: rgb(0.98, 0.98, 0.985) });
+      if (currentY - neededHeight < SAFE_BOTTOM) {
+        newPage(++pageNum);
       }
 
-      // Description avec coupe douce
-      const desc = p.description.length > 72 ? p.description.slice(0, 69) + '…' : p.description;
-      page.drawText(desc, { x: colDesc + 4, y: tableY + 2, size: 9, font: helv, color: dark });
-      page.drawText(String(p.quantite), { x: colQty + 12, y: tableY + 2, size: 9, font: helv, color: dark });
-      page.drawText(`${p.prixUnit.toFixed(2)} €`, { x: colPU, y: tableY + 2, size: 9, font: helv, color: dark });
-      page.drawText(`${(p.quantite * p.prixUnit).toFixed(2)} €`, { x: colTot, y: tableY + 2, size: 9, font: helvBold, color: dark });
+      // alternance
+      if (i % 2 === 0) {
+        page.drawRectangle({
+          x: MARGIN - 5, y: currentY - neededHeight + 4, width: TABLE.width + 10, height: neededHeight,
+          color: THEME.rowAlt,
+        });
+      }
 
-      tableY -= rowH;
-    });
+      // description multilignes
+      descLines.forEach((ln, idx) => {
+        page.drawText(ln, {
+          x: TABLE.colDesc + 4,
+          y: currentY - 2 - idx * 12,
+          size: 9,
+          font: helv,
+          color: THEME.dark,
+        });
+      });
 
-    // Séparateur fin de tableau
-    page.drawRectangle({ x: margin - 5, y: tableY + 6, width: tableW + 10, height: 1, color: light });
+      // autres colonnes (alignées sur la 1re ligne)
+      page.drawText(String(p.quantite), { x: TABLE.colQty + 12, y: currentY - 2, size: 9, font: helv, color: THEME.dark });
+      page.drawText(currency(p.prixUnit), { x: TABLE.colPU, y: currentY - 2, size: 9, font: helv, color: THEME.dark });
+      page.drawText(currency(p.quantite * p.prixUnit), { x: TABLE.colTot, y: currentY - 2, size: 9, font: helvBold, color: THEME.dark });
 
-    /* ------------------------------ Bloc total ------------------------------ */
+      currentY -= neededHeight;
+    }
 
-    const totalCardW = 210;
-    const totalCardH = 60;
-    const totalX = pageW - margin - totalCardW;
-    const totalY = tableY - 36;
+    // séparateur fin de tableau
+    page.drawRectangle({ x: MARGIN - 5, y: currentY + 6, width: TABLE.width + 10, height: 1, color: THEME.light });
 
-    // Carte total en accent (coins doux)
-    page.drawRectangle({ x: totalX, y: totalY, width: totalCardW, height: totalCardH, color: primary });
-    page.drawText('TOTAL HT', { x: totalX + 14, y: totalY + 36, size: 11, font: helvBold, color: white });
-    page.drawText(`${f.totalHT.toFixed(2)} €`, { x: totalX + 14, y: totalY + 16, size: 18, font: helvBold, color: white });
+    /* ---------- Bloc total ---------- */
+    const totalCardW = 230, totalCardH = 62;
+    const totalX = A4.w - MARGIN - totalCardW;
+    const totalY = currentY - 40;
 
-    // Mention TVA
+    if (totalY < SAFE_BOTTOM) {
+      newPage(++pageNum);
+    }
+
+    page.drawRectangle({ x: totalX, y: totalY, width: totalCardW, height: totalCardH, color: THEME.primary });
+    page.drawText('TOTAL HT', { x: totalX + 14, y: totalY + 38, size: 11, font: helvBold, color: THEME.white });
+    page.drawText(currency(f.totalHT), { x: totalX + 14, y: totalY + 18, size: 18, font: helvBold, color: THEME.white });
+
     page.drawText('TVA non applicable (art. 293B du CGI)', {
-      x: totalX - 250,
-      y: totalY + 8,
+      x: totalX - 260,
+      y: totalY + 10,
       size: 8,
       font: helv,
-      color: mid,
+      color: THEME.mid,
     });
 
-    /* ------------------------------ Footer ------------------------------ */
+    // Footer de la dernière page avec numérotation finale
+    const totalPages = pageNum;
+    page.drawRectangle({ x: 0, y: 0, width: A4.w, height: 82, color: rgb(0.96, 0.965, 0.97) });
+    page.drawText('INFORMATIONS BANCAIRES', { x: MARGIN, y: 58, size: 8, font: helvBold, color: THEME.primary });
+    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: MARGIN, y: 44, size: 9, font: helv, color: THEME.dark });
+    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: MARGIN, y: 30, size: 9, font: helv, color: THEME.mid });
+    page.drawText(`Page ${totalPages}/${totalPages}`, { x: A4.w - MARGIN - 90, y: 14, size: 9, font: helv, color: THEME.mid });
 
-    const footerH = 82;
-    page.drawRectangle({ x: 0, y: 0, width: pageW, height: footerH, color: rgb(0.96, 0.965, 0.97) });
-
-    page.drawText('INFORMATIONS BANCAIRES', { x: margin, y: 58, size: 8, font: helvBold, color: primary });
-    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', { x: margin, y: 44, size: 9, font: helv, color: dark });
-    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', { x: margin, y: 30, size: 9, font: helv, color: mid });
-
-    page.drawText('TBH ONE', { x: pageW - margin - 60, y: 34, size: 12, font: helvBold, color: rgb(0.88, 0.89, 0.90) });
-
-    /* ------------------------------ Save & Upload ------------------------------ */
-
-    const pdfBytes = await pdf.save(); // Uint8Array (parfait pour Supabase upload)
-    const buffer = Buffer.from(pdfBytes); // pour fallback download
+    /* ---------- Save & Upload ---------- */
+    const pdfBytes = await pdf.save();      // Uint8Array
+    const buffer   = Buffer.from(pdfBytes); // pour fallback download
 
     await ensureBucket();
     const yyyy = new Date(f.date).getFullYear();
@@ -302,7 +273,7 @@ export async function GET(req: NextRequest) {
       .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      // fallback: download direct si l’upload échoue
+      // fallback: téléchargement direct
       return new NextResponse(buffer, {
         headers: {
           'Content-Type': 'application/pdf',
