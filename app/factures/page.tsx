@@ -18,7 +18,9 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'asc' | 'desc'>('desc');
 
-  useEffect(() => { fetchFactures(); }, []);
+  useEffect(() => {
+    fetchFactures();
+  }, []);
 
   const fetchFactures = async () => {
     try {
@@ -54,27 +56,36 @@ export default function FacturesPage() {
   if (loading) return <div className="text-center py-20">Chargement...</div>;
 
   return (
-    <div className="py-10">
+    <div className="py-10 container-app">
+      {/* Header + filtres */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <h1 className="text-4xl font-bold">📄 Factures</h1>
-        <div className="flex gap-2">
+
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
           <input
             type="text"
             placeholder="🔍 Rechercher..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="w-full sm:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           />
-          <button
-            onClick={() => setSort(sort === 'asc' ? 'desc' : 'asc')}
-            className="btn-ghost"
-            title="Changer l’ordre"
-          >
-            {sort === 'asc' ? '⬆️' : '⬇️'}
-          </button>
-          <Link href="/factures/nouvelle" className="btn-primary">
-            ➕ Nouvelle facture
-          </Link>
+
+          <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end">
+            <button
+              onClick={() => setSort(sort === 'asc' ? 'desc' : 'asc')}
+              className="btn-ghost flex-1 sm:flex-none"
+              title="Changer l’ordre"
+            >
+              {sort === 'asc' ? '⬆️ Plus anciennes' : '⬇️ Plus récentes'}
+            </button>
+
+            <Link
+              href="/factures/nouvelle"
+              className="btn-primary flex-1 sm:flex-none text-center justify-center"
+            >
+              ➕ Nouvelle facture
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -83,16 +94,21 @@ export default function FacturesPage() {
           Aucune facture trouvée.
         </div>
       ) : (
-        <div className="glass rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        // ⚠️ ICI : scroll horizontal sur mobile
+        <div className="glass rounded-2xl overflow-x-auto">
+          <table className="min-w-[640px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-zinc-900/40 text-left text-gray-700 dark:text-zinc-200">
               <tr>
                 <th className="py-3 px-5">Numéro</th>
                 <th className="py-3 px-5">Date</th>
                 <th className="py-3 px-5">Type</th>
                 <th className="py-3 px-5">Client</th>
-                <th className="py-3 px-5 text-right">Montant HT</th>
-                <th className="py-3 px-5 text-center">Actions</th>
+                <th className="py-3 px-5 text-right whitespace-nowrap">
+                  Montant HT
+                </th>
+                <th className="py-3 px-5 text-center whitespace-nowrap">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -103,9 +119,13 @@ export default function FacturesPage() {
                     i % 2 ? 'bg-zinc-50/40 dark:bg-zinc-900/20' : ''
                   }`}
                 >
-                  <td className="py-3 px-5 font-medium">{f.numero}</td>
-                  <td className="py-3 px-5">{new Date(f.date).toLocaleDateString('fr-FR')}</td>
-                  <td className="py-3 px-5">
+                  <td className="py-3 px-5 font-medium whitespace-nowrap">
+                    {f.numero}
+                  </td>
+                  <td className="py-3 px-5 whitespace-nowrap">
+                    {new Date(f.date).toLocaleDateString('fr-FR')}
+                  </td>
+                  <td className="py-3 px-5 whitespace-nowrap">
                     <span
                       className={`px-2 py-1 rounded text-xs font-semibold ${
                         f.typeDocument === 'Facture'
@@ -117,11 +137,35 @@ export default function FacturesPage() {
                     </span>
                   </td>
                   <td className="py-3 px-5">{f.client.nom}</td>
-                  <td className="py-3 px-5 text-right font-semibold">{f.totalHT.toFixed(2)} €</td>
-                  <td className="py-3 px-5 text-center flex justify-center gap-3">
-                    <Link href={`/factures/${f.id}`} className="hover:text-blue-600">👁️</Link>
-                    <a href={`/api/pdf?id=${f.id}`} target="_blank" className="hover:text-green-600">📥</a>
-                    <button onClick={() => deleteFacture(f.id)} className="hover:text-red-600">🗑️</button>
+                  <td className="py-3 px-5 text-right font-semibold whitespace-nowrap">
+                    {f.totalHT.toFixed(2)} €
+                  </td>
+                  <td className="py-3 px-5 text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <Link
+                        href={`/factures/${f.id}`}
+                        className="hover:text-blue-600"
+                        title="Voir la facture"
+                      >
+                        👁️
+                      </Link>
+                      <a
+                        href={`/api/pdf?id=${f.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-green-600"
+                        title="Télécharger le PDF"
+                      >
+                        📥
+                      </a>
+                      <button
+                        onClick={() => deleteFacture(f.id)}
+                        className="hover:text-red-600"
+                        title="Supprimer"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
