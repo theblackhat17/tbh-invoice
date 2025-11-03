@@ -20,8 +20,8 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'asc' | 'desc'>('desc');
 
-  const searchParams = useSearchParams();
-  const clientIdFilter = searchParams.get('clientId');
+  const searchParams = useSearchParams({ suspense: false });
+  const clientIdFilter = searchParams?.get('clientId');
 
   const fetchFactures = async () => {
     try {
@@ -62,7 +62,8 @@ export default function FacturesPage() {
         : new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
 
-  if (loading) return <div className="text-center py-20">Chargement...</div>;
+  if (loading)
+    return <div className="text-center py-20">Chargement...</div>;
 
   return (
     <div className="py-10 container-app">
@@ -85,7 +86,9 @@ export default function FacturesPage() {
               className="btn-ghost flex-1 sm:flex-none"
               title="Changer l’ordre"
             >
-              {sort === 'asc' ? '⬆️ Plus anciennes' : '⬇️ Plus récentes'}
+              {sort === 'asc'
+                ? '⬆️ Plus anciennes'
+                : '⬇️ Plus récentes'}
             </button>
 
             <Link
@@ -101,7 +104,9 @@ export default function FacturesPage() {
       {clientIdFilter && factures.length > 0 && (
         <p className="text-sm text-gray-500 mb-4">
           Factures pour&nbsp;
-          <span className="font-semibold">{factures[0].client.nom}</span>
+          <span className="font-semibold">
+            {factures[0].client.nom}
+          </span>
         </p>
       )}
 
