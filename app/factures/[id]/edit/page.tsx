@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 
 interface Client { id: string; nom: string; adresse: string; }
 interface Prestation { description: string; quantite: number; prixUnit: number; }
@@ -16,38 +16,71 @@ const toFloat = (v: string) => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
-export default function NouvelleFacturePage() {
+export default function EditFacturePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const clientIdFromUrl = searchParams.get('clientId') ?? '';
+  const params = useParams();
+  const id = params?.id as string;
 
   const [clients, setClients] = useState<Client[]>([]);
   const [clientSearch, setClientSearch] = useState('');
+  const [factureNumero, setFactureNumero] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     typeDocument: 'Facture',
     date: new Date().toISOString().split('T')[0],
-    clientId: clientIdFromUrl,
+    clientId: '',
   });
 
   const [prestations, setPrestations] = useState<Prestation[]>([
     { description: '', quantite: 1, prixUnit: 0 },
   ]);
 
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Charge clients + facture
   useEffect(() => {
+    if (!id) return;
+
     (async () => {
       try {
-        const r = await fetch('/api/clients');
-        const data = await r.json();
-        setClients(Array.isArray(data) ? data : []);
+        const [rClients, rFacture] = await Promise.all([
+          fetch('/api/clients'),
+          fetch(`/api/factures?id=${id}`),
+        ]);
+
+        const dataClients = await rClients.json();
+        const dataFacture = await rFacture.json();
+
+        setClients(Array.isArray(dataClients) ? dataClients : []);
+
+        setFactureNumero(dataFacture.numero ?? null);
+
+        setForm({
+          typeDocument: dataFacture.typeDocument ?? 'Facture',
+          date: (dataFacture.date ?? '').slice(0, 10) ||
+            new Date().toISOString().split('T')[0],
+          clientId: dataFacture.clientId ?? '',
+        });
+
+        if (Array.isArray(dataFacture.prestations) && dataFacture.prestations.length > 0) {
+          setPrestations(
+            dataFacture.prestations.map((p: any) => ({
+              description: p.description ?? '',
+              quantite: p.quantite ?? 0,
+              prixUnit: p.prixUnit ?? 0,
+            })),
+          );
+        }
       } catch (e) {
-        console.error(e);
+        console.error('Erreur chargement facture pour édition', e);
+        setErrorMsg("Impossible de charger la facture.");
+      } finally {
+        setLoading(false);
       }
     })();
-  }, []);
+  }, [id]);
 
   const filteredClients = clients.filter((c) => {
     if (!clientSearch.trim()) return true;
@@ -96,8 +129,8 @@ export default function NouvelleFacturePage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/factures', {
-        method: 'POST',
+      const res = await fetch(`/api/factures?id=${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, prestations: safePrestations, totalHT: safeTotal }),
       });
@@ -108,8 +141,7 @@ export default function NouvelleFacturePage() {
         return;
       }
 
-      const facture = await res.json();
-      alert(`✅ Facture ${facture.numero ?? ''} créée avec succès !`);
+      alert(`✅ Facture mise à jour avec succès !`);
       router.push('/factures');
     } catch (err: any) {
       setErrorMsg(`Erreur réseau : ${err?.message ?? err}`);
@@ -118,9 +150,18 @@ export default function NouvelleFacturePage() {
     }
   };
 
+  if (loading) {
+    return <div className="py-16 text-center text-gray-500">Chargement…</div>;
+  }
+
   return (
     <div className="py-10 max-w-5xl mx-auto">
-      <h1 className="text-4xl font-extrabold mb-8">➕ Nouvelle Facture</h1>
+      <h1 className="text-4xl font-extrabold mb-2">
+        ✏️ Modifier la facture {factureNumero ? `#${factureNumero}` : ''}
+      </h1>
+      <p className="text-sm text-gray-500 mb-6">
+        Ajustez les informations et enregistrez pour mettre à jour la facture.
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {errorMsg && (
@@ -132,7 +173,7 @@ export default function NouvelleFacturePage() {
         {/* Infos générales */}
         <div className="card">
           <h2 className="text-2xl font-bold mb-4">Informations générales</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid.grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Type *</label>
               <select
@@ -156,7 +197,7 @@ export default function NouvelleFacturePage() {
                     date: e.target.value || new Date().toISOString().split('T')[0],
                   })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 required
               />
             </div>
@@ -170,13 +211,13 @@ export default function NouvelleFacturePage() {
                 value={clientSearch}
                 onChange={(e) => setClientSearch(e.target.value)}
                 placeholder="Rechercher par nom ou adresse…"
-                className="mb-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="mb-2 w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
 
               <select
                 value={form.clientId}
                 onChange={(e) => setForm({ ...form, clientId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 required
               >
                 <option value="">
@@ -195,16 +236,6 @@ export default function NouvelleFacturePage() {
                   <option disabled>Aucun client trouvé</option>
                 )}
               </select>
-
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => router.push('/clients/nouveau')}
-                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                >
-                  ➕ Créer un nouveau client
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -223,7 +254,7 @@ export default function NouvelleFacturePage() {
           </div>
 
           {prestations.map((p, i) => (
-            <div key={i} className="grid grid-cols-12 gap-4 items.end mb-3">
+            <div key={i} className="grid grid-cols-12 gap-4 items-end mb-3">
               <div className="col-span-12 md:col-span-6">
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <input
@@ -231,7 +262,7 @@ export default function NouvelleFacturePage() {
                   value={p.description}
                   onChange={(e) => handleChange(i, 'description', e.target.value)}
                   placeholder="Ex: PRESTATION DJ TBH ONE (18h-00h)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
@@ -242,30 +273,30 @@ export default function NouvelleFacturePage() {
                   type="number"
                   min="0"
                   value={String(p.quantite)}
-                  onChange={(e) => handleChange(i, 'quantite', toInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-center"
+                 .onChange={(e) => handleChange(i, 'quantite', toInt(e.target.value))}
+                  className="w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-center"
                   inputMode="numeric"
                   required
                 />
               </div>
 
               <div className="col-span-6 md:col-span-2">
-                <label className="block text.sm font-medium mb-1">Prix unitaire (€)</label>
+                <label className="block text-sm font-medium mb-1">Prix unitaire (€)</label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={String(p.prixUnit)}
                   onChange={(e) => handleChange(i, 'prixUnit', toFloat(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-right"
+                  className="w-full px-3.py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-right"
                   inputMode="decimal"
-                  required
+                 .required
                 />
               </div>
 
               <div className="col-span-3 md:col-span-1 flex flex-col justify-end">
                 <label className="text-sm font-medium text-gray-500 mb-1">Total</label>
-                <div className="px-3 py-2 bg-gray-200 rounded-lg text-center font-semibold">
+                <div className="px-3.py-2 bg-gray-200 rounded-lg text-center font-semibold">
                   {(p.quantite * p.prixUnit).toFixed(2)} €
                 </div>
               </div>
@@ -300,7 +331,7 @@ export default function NouvelleFacturePage() {
             className="btn-primary flex-1"
             disabled={submitting}
           >
-            {submitting ? 'Enregistrement…' : '💾 Enregistrer la facture'}
+            {submitting ? 'Enregistrement…' : '💾 Enregistrer les modifications'}
           </button>
           <button
             type="button"

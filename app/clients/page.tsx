@@ -11,6 +11,7 @@ interface Client {
   telephone?: string | null;
   siret?: string | null;
   created_at?: string | null;
+  nbFactures?: number;
 }
 
 export default function ClientsPage() {
@@ -98,6 +99,7 @@ export default function ClientsPage() {
               .slice(0, 2)
               .map((x) => x[0]?.toUpperCase())
               .join('');
+            const nb = c.nbFactures ?? 0;
 
             return (
               <div
@@ -111,6 +113,9 @@ export default function ClientsPage() {
                   </div>
                   <div className="flex-1">
                     <h2 className="text-lg font-bold">{c.nom}</h2>
+                    <p className="text-xs text-gray-500">
+                      🧾 {nb} facture{nb > 1 ? 's' : ''}
+                    </p>
                     {c.siret && (
                       <p className="text-xs text-gray-500">
                         SIRET&nbsp;: <span className="font-mono">{c.siret}</span>

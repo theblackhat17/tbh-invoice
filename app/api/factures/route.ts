@@ -1,169 +1,236 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 
-// Génère un numéro type 2025-10-001 en regardant les factures existantes
-async function genererNumeroFacture(): Promise<string> {
-  const now = new Date();
-  const annee = now.getFullYear();
-  const mois = String(now.getMonth() + 1).padStart(2, '0');
-  const prefixe = `${annee}-${mois}`;
-
-  const { data, error } = await supabase
-    .from('factures')
-    .select('numero')
-    .ilike('numero', `${prefixe}-%`);
-
-  if (error) throw new Error(error.message);
-
-  const seq = (data ?? [])
-    .map((f) => parseInt(String(f.numero).split('-')[2] || '0', 10))
-    .filter((n) => Number.isFinite(n))
-    .sort((a, b) => b - a)[0] || 0;
-
-  const next = String(seq + 1).padStart(3, '0');
-  return `${prefixe}-${next}`;
-}
-
-// ===== GET: liste des factures OU une facture par ID =====
-export async function GET(req: NextRequest) {
+// GET /api/factures
+// GET /api/factures?id=... (détail + lignes)
+// GET /api/factures?clientId=... (filtre par client)
+export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const clientId = searchParams.get('clientId');
 
-  // Si un ID est fourni, retourner UNE SEULE facture avec toutes ses données
-  if (id) {
-    const { data, error } = await supabase
+  try {
+    if (id) {
+      const { data, error } = await supabase
+        .from('factures')
+        .select(
+          `
+          id,
+          numero,
+          date,
+          type_document,
+          total_ht,
+          client_id,
+          clients ( id, nom, adresse ),
+          facture_lignes ( id, description, quantite, prix_unit )
+        `,
+        )
+        .eq('id', id)
+        ..single();
+
+      if (error) {
+        console.error('GET /api/factures?id error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      const f: any = data;
+
+      return NextResponse.json({
+        id: f.id,
+        numero: f.numero,
+        date: f.date,
+        typeDocument: f.type_document,
+        totalHT: f.total_ht,
+        clientId: f.client_id,
+        client: f.clients,
+        prestations: (f.facture_lignes ?? []).map((l: any) => ({
+          id: l.id,
+          description: l.description,
+          quantite: l.quantite,
+          prixUnit: l.prix_unit,
+        })),
+      });
+    }
+
+    let query = supabase
       .from('factures')
-      .select(`
+      .select(
+        `
         id,
         numero,
         date,
         type_document,
         total_ht,
-        client:clients!factures_client_id_fkey ( nom, adresse ),
-        prestations ( description, quantite, prix_unit )
-      `)
-      .eq('id', id)
-      .single();
+        client_id,
+        clients ( nom )
+      `,
+      )
+      .order('date', { ascending: false });
+
+    if (clientId) {
+      query = query.eq('client_id', clientId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
+      console.error('GET /api/factures error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Adapter pour le front
-    const shaped = {
-      id: data.id,
-      numero: data.numero,
-      date: data.date,
-      type_document: data.type_document,
-      total_ht: Number(data.total_ht ?? 0),
-      client: {
-        nom: (data.client as any)?.nom ?? '—',
-        adresse: (data.client as any)?.adresse ?? '',
-      },
-      prestations: (data.prestations ?? []).map((p: any) => ({
-        description: String(p.description ?? ''),
-        quantite: Number(p.quantite ?? 0),
-        prix_unit: Number(p.prix_unit ?? 0),
-      })),
-    };
+    const factures = (data ?? []).map((f: any) => ({
+      id: f.id,
+      numero: f.numero,
+      date: f.date,
+      typeDocument: f.type_document,
+      totalHT: f.total_ht,
+      clientId: f.client_id,
+      client: { nom: f.clients?.nom ?? '' },
+    }));
 
-    return NextResponse.json(shaped);
+    return NextResponse.json(factures);
+  } catch (e: any) {
+    console.error('GET /api/factures exception:', e);
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
-
-  // Sinon, retourner la LISTE de toutes les factures
-  const { data, error } = await supabase
-    .from('factures')
-    .select(`
-      id,
-      numero,
-      date,
-      type_document,
-      total_ht,
-      client:clients!factures_client_id_fkey ( nom )
-    `)
-    .order('date', { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // Adapter les champs pour ton front (typeDocument, totalHT, client.nom)
-  const shaped = (data ?? []).map((f: any) => ({
-    id: f.id,
-    numero: f.numero,
-    date: f.date,
-    typeDocument: f.type_document,
-    totalHT: Number(f.total_ht ?? 0),
-    client: { nom: f.client?.nom ?? '—' },
-  }));
-
-  return NextResponse.json(shaped);
 }
 
-// ===== POST: création facture + lignes de prestations =====
+// POST /api/factures
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { typeDocument, date, clientId, prestations = [], totalHT } = body;
+    const { typeDocument, date, clientId, prestations, totalHT } = body;
 
-    if (!clientId) return NextResponse.json({ error: 'clientId manquant' }, { status: 400 });
-    if (!typeDocument) return NextResponse.json({ error: 'typeDocument manquant' }, { status: 400 });
-    if (!date) return NextResponse.json({ error: 'date manquante' }, { status: 400 });
-
-    // Clamp des valeurs
-    const safePrestations = (prestations as any[]).map((p) => ({
-      description: String(p.description ?? '').trim(),
-      quantite: Number.isFinite(p.quantite) && p.quantite >= 0 ? p.quantite : 0,
-      prix_unit: Number.isFinite(p.prixUnit) && p.prixUnit >= 0 ? p.prixUnit : 0,
-    }));
-
-    const safeTotal =
-      safePrestations.reduce((t, p) => t + p.quantite * p.prix_unit, 0);
-
-    // Générer le numéro ici ✅
-    const numero = await genererNumeroFacture();
-
-    // 1) Insert facture
-    const { data: newFacture, error: errInsert } = await supabase
-      .from('factures')
-      .insert([
-        {
-          numero,
-          date, // format 'YYYY-MM-DD' ok
-          type_document: typeDocument,
-          total_ht: safeTotal, // on recalcule côté serveur
-          client_id: clientId,
-        },
-      ])
-      .select()
-      .single();
-
-    if (errInsert) {
-      return NextResponse.json({ error: errInsert.message }, { status: 500 });
+    if (!clientId || !date || !typeDocument) {
+      return NextResponse.json(
+        { error: 'typeDocument, date et clientId sont obligatoires.' },
+        { status: 400 },
+      );
     }
 
-    // 2) Insert prestations (si présentes)
-    if (safePrestations.length > 0) {
-      const lignes = safePrestations.map((p) => ({
-        ...p,
-        facture_id: newFacture.id,
+    const { data: inserted, error } = await supabase
+      .from('factures')
+      .insert({
+        type_document: typeDocument,
+        date,
+        client_id: clientId,
+        total_ht: totalHT ?? 0,
+      })
+      .select('id, numero')
+      .single();
+
+    if (error) {
+      console.error('POST /api/factures error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const factureId = (inserted as any).id;
+
+    if (Array.isArray(prestations) && prestations.length > 0) {
+      const lignes = prestations.map((p: any) => ({
+        facture_id: factureId,
+        description: p.description ?? '',
+        quantite: p.quantite ?? 0,
+        prix_unit: p.prixUnit ?? 0,
       }));
-      const { error: errLignes } = await supabase.from('prestations').insert(lignes);
-      if (errLignes) {
-        return NextResponse.json({ error: errLignes.message }, { status: 500 });
+      const { error: errLines } = await supabase
+        .from('facture_lignes')
+        .insert(lignes);
+      if (errLines) {
+        console.error('POST /api/factures lignes error:', errLines);
       }
     }
 
-    // Réponse au front (forme attendue)
-    return NextResponse.json({
-      id: newFacture.id,
-      numero: newFacture.numero,
-      date: newFacture.date,
-      typeDocument: newFacture.type_document,
-      totalHT: Number(newFacture.total_ht ?? 0),
-      clientId: newFacture.client_id,
-    });
+    return NextResponse.json(inserted, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Erreur serveur' }, { status: 500 });
+    console.error('POST /api/factures exception:', e);
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+  }
+}
+
+// PUT /api/factures?id=...
+// -> met à jour la facture + remplace les lignes
+export async function PUT(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
+
+  try {
+    const body = await req.json();
+    const { typeDocument, date, clientId, prestations, totalHT } = body;
+
+    const { error: errUpdate } = await supabase
+      .from('factures')
+      .update({
+        type_document: typeDocument,
+        date,
+        client_id: clientId,
+        total_ht: totalHT ?? 0,
+      })
+      .eq('id', id);
+
+    if (errUpdate) {
+      console.error('PUT /api/factures update error:', errUpdate);
+      return NextResponse.json({ error: errUpdate.message }, { status: 500 });
+    }
+
+    // On remplace les lignes
+    const { error: errDel } = await supabase
+      .from('facture_lignes')
+      .delete()
+      .eq('facture_id', id);
+
+    if (errDel) {
+      console.error('PUT /api/factures delete lignes error:', errDel);
+    }
+
+    if (Array.isArray(prestations) && prestations.length > 0) {
+      const lignes = prestations.map((p: any) => ({
+        facture_id: id,
+        description: p.description ?? '',
+        quantite: p.quantite ?? 0,
+        prix_unit: p.prixUnit ?? 0,
+      }));
+      const { error: errIns } = await supabase
+        .from('facture_lignes')
+        .insert(lignes);
+      if (errIns) {
+        console.error('PUT /api/factures insert lignes error:', errIns);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    console.error('PUT /api/factures exception:', e);
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+  }
+}
+
+// DELETE /api/factures?id=...
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  }
+
+  try {
+    // On supprime d’abord les lignes, puis la facture
+    await supabase.from('facture_lignes').delete().eq('facture_id', id);
+    const { error } = await supabase.from('factures').delete().eq('id', id);
+
+    if (error) {
+      console.error('DELETE /api/factures error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    console.error('DELETE /api/factures exception:', e);
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
 }

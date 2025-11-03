@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 interface Facture {
   id: string;
@@ -9,6 +10,7 @@ interface Facture {
   date: string;
   typeDocument: string;
   totalHT: number;
+  clientId?: string;
   client: { nom: string };
 }
 
@@ -18,13 +20,15 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'asc' | 'desc'>('desc');
 
-  useEffect(() => {
-    fetchFactures();
-  }, []);
+  const searchParams = useSearchParams();
+  const clientIdFilter = searchParams.get('clientId');
 
   const fetchFactures = async () => {
     try {
-      const res = await fetch('/api/factures');
+      const url = clientIdFilter
+        ? `/api/factures?clientId=${clientIdFilter}`
+        : '/api/factures';
+      const res = await fetch(url);
       const data = await res.json();
       setFactures(data);
     } catch (e) {
@@ -33,6 +37,11 @@ export default function FacturesPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchFactures();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientIdFilter]);
 
   const deleteFacture = async (id: string) => {
     if (!confirm('Supprimer cette facture ?')) return;
@@ -45,12 +54,12 @@ export default function FacturesPage() {
       [f.numero, f.client.nom, f.typeDocument]
         .join(' ')
         .toLowerCase()
-        .includes(search.toLowerCase())
+        .includes(search.toLowerCase()),
     )
     .sort((a, b) =>
       sort === 'asc'
         ? new Date(a.date).getTime() - new Date(b.date).getTime()
-        : new Date(b.date).getTime() - new Date(a.date).getTime()
+        : new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
 
   if (loading) return <div className="text-center py-20">Chargement...</div>;
@@ -58,7 +67,7 @@ export default function FacturesPage() {
   return (
     <div className="py-10 container-app">
       {/* Header + filtres */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <h1 className="text-4xl font-bold">📄 Factures</h1>
 
         <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -89,12 +98,18 @@ export default function FacturesPage() {
         </div>
       </div>
 
+      {clientIdFilter && factures.length > 0 && (
+        <p className="text-sm text-gray-500 mb-4">
+          Factures pour&nbsp;
+          <span className="font-semibold">{factures[0].client.nom}</span>
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <div className="text-center text-gray-500 py-20">
           Aucune facture trouvée.
         </div>
       ) : (
-        // ⚠️ ICI : scroll horizontal sur mobile
         <div className="glass rounded-2xl overflow-x-auto">
           <table className="min-w-[640px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-zinc-900/40 text-left text-gray-700 dark:text-zinc-200">
@@ -148,6 +163,13 @@ export default function FacturesPage() {
                         title="Voir la facture"
                       >
                         👁️
+                      </Link>
+                      <Link
+                        href={`/factures/${f.id}/edit`}
+                        className="hover:text-amber-600"
+                        title="Modifier la facture"
+                      >
+                        ✏️
                       </Link>
                       <a
                         href={`/api/pdf?id=${f.id}`}
