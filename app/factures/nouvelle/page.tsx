@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +28,16 @@ const toFloat = (v: string) => {
 };
 
 export default function NouvelleFacturePage() {
+  return (
+    <Suspense fallback={<div className="text-center py-20">Chargement…</div>}>
+      <NouvelleFactureInner />
+    </Suspense>
+  );
+}
+
+function NouvelleFactureInner() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // ✅ plus d’argument
+  const searchParams = useSearchParams();
   const clientIdFromUrl = searchParams?.get('clientId') ?? '';
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -334,7 +342,7 @@ export default function NouvelleFacturePage() {
                 </div>
               </div>
 
-              <div className="col-span-1 flex justify-center items-end">
+              <div className="col-span-1 flex justify-center.items-end">
                 <button
                   type="button"
                   onClick={() => removeLine(i)}

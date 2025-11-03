@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
@@ -17,6 +17,15 @@ interface Facture {
 }
 
 export default function FacturesPage() {
+  // 🔹 Ici on ne fait que le wrapper + Suspense
+  return (
+    <Suspense fallback={<div className="text-center py-20">Chargement…</div>}>
+      <FacturesPageInner />
+    </Suspense>
+  );
+}
+
+function FacturesPageInner() {
   const [factures, setFactures] = useState<Facture[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
