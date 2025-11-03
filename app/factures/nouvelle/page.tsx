@@ -196,6 +196,17 @@ export default function NouvelleFacturePage() {
                   <option disabled>Aucun client trouvé</option>
                 )}
               </select>
+
+              {/* 🔹 Bouton créer un client juste sous le select */}
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => router.push('/clients/nouveau')}
+                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                >
+                  ➕ Créer un nouveau client
+                </button>
+              </div>
             </div>
           </div>
         </div>
