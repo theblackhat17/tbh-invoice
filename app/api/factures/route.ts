@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 
 // GET /api/factures
-// GET /api/factures?id=... (détail + lignes)
-// GET /api/factures?clientId=... (filtre par client)
+//   - /api/factures              -> liste
+//   - /api/factures?id=...       -> détail
+//   - /api/factures?clientId=... -> filtrage par client
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const clientId = searchParams.get('clientId');
 
   try {
+    // 🔹 Détail d'une facture
     if (id) {
       const { data, error } = await supabase
         .from('factures')
@@ -26,11 +28,18 @@ export async function GET(req: Request) {
         `,
         )
         .eq('id', id)
-        ..single();
+        .single(); // ✅ corrigé : un seul point
 
       if (error) {
         console.error('GET /api/factures?id error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      if (!data) {
+        return NextResponse.json(
+          { error: 'Facture introuvable.' },
+          { status: 404 },
+        );
       }
 
       const f: any = data;
@@ -52,6 +61,7 @@ export async function GET(req: Request) {
       });
     }
 
+    // 🔹 Liste des factures (optionnellement filtrée par clientId)
     let query = supabase
       .from('factures')
       .select(
@@ -78,20 +88,24 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const factures = (data ?? []).map((f: any) => ({
-      id: f.id,
-      numero: f.numero,
-      date: f.date,
-      typeDocument: f.type_document,
-      totalHT: f.total_ht,
-      clientId: f.client_id,
-      client: { nom: f.clients?.nom ?? '' },
-    }));
+    const factures =
+      (data ?? []).map((f: any) => ({
+        id: f.id,
+        numero: f.numero,
+        date: f.date,
+        typeDocument: f.type_document,
+        totalHT: f.total_ht,
+        clientId: f.client_id,
+        client: { nom: f.clients?.nom ?? '' },
+      }));
 
     return NextResponse.json(factures);
   } catch (e: any) {
     console.error('GET /api/factures exception:', e);
-    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Erreur serveur interne.' },
+      { status: 500 },
+    );
   }
 }
 
@@ -108,6 +122,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Insertion de la facture
     const { data: inserted, error } = await supabase
       .from('factures')
       .insert({
@@ -126,6 +141,7 @@ export async function POST(req: Request) {
 
     const factureId = (inserted as any).id;
 
+    // Insertion des lignes
     if (Array.isArray(prestations) && prestations.length > 0) {
       const lignes = prestations.map((p: any) => ({
         facture_id: factureId,
@@ -144,12 +160,14 @@ export async function POST(req: Request) {
     return NextResponse.json(inserted, { status: 201 });
   } catch (e: any) {
     console.error('POST /api/factures exception:', e);
-    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Erreur serveur interne.' },
+      { status: 500 },
+    );
   }
 }
 
 // PUT /api/factures?id=...
-// -> met à jour la facture + remplace les lignes
 export async function PUT(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -162,6 +180,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const { typeDocument, date, clientId, prestations, totalHT } = body;
 
+    // Mise à jour de la facture
     const { error: errUpdate } = await supabase
       .from('factures')
       .update({
@@ -177,7 +196,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: errUpdate.message }, { status: 500 });
     }
 
-    // On remplace les lignes
+    // Remplacement des lignes : on supprime puis on recrée
     const { error: errDel } = await supabase
       .from('facture_lignes')
       .delete()
@@ -205,7 +224,10 @@ export async function PUT(req: Request) {
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('PUT /api/factures exception:', e);
-    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Erreur serveur interne.' },
+      { status: 500 },
+    );
   }
 }
 
@@ -231,6 +253,9 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('DELETE /api/factures exception:', e);
-    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Erreur serveur interne.' },
+      { status: 500 },
+    );
   }
 }
