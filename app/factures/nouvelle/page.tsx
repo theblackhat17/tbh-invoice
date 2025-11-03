@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 interface Client {
   id: string;
   nom: string;
@@ -27,7 +29,7 @@ const toFloat = (v: string) => {
 
 export default function NouvelleFacturePage() {
   const router = useRouter();
-  const searchParams = useSearchParams({ suspense: false });
+  const searchParams = useSearchParams(); // ✅ plus d’argument
   const clientIdFromUrl = searchParams?.get('clientId') ?? '';
 
   const [clients, setClients] = useState<Client[]>([]);

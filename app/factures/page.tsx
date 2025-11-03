@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 interface Facture {
   id: string;
   numero: string;
@@ -20,7 +22,7 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'asc' | 'desc'>('desc');
 
-  const searchParams = useSearchParams({ suspense: false });
+  const searchParams = useSearchParams();
   const clientIdFilter = searchParams?.get('clientId');
 
   const fetchFactures = async () => {
