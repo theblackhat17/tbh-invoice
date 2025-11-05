@@ -26,10 +26,12 @@ async function fetchFactureFull(id: string) {
     .eq('id', id)
     .single();
 
-  if (error || !facture) throw new Error(error?.message || 'Facture introuvable');
+  if (error || !facture)
+    throw new Error(error?.message || 'Facture introuvable');
 
+  // 🔥 ICI : on lit bien dans "facture_lignes" et plus dans "prestations"
   const { data: lignes, error: err2 } = await supabaseAdmin
-    .from('prestations')
+    .from('facture_lignes')
     .select('description, quantite, prix_unit')
     .eq('facture_id', id)
     .order('id');
