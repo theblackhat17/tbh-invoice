@@ -28,7 +28,7 @@ export async function GET(req: Request) {
         `,
         )
         .eq('id', id)
-        .single(); // ✅ corrigé : un seul point
+        .single();
 
       if (error) {
         console.error('GET /api/factures?id error:', error);
@@ -109,6 +109,36 @@ export async function GET(req: Request) {
   }
 }
 
+/**
+ * Génère un numéro de facture du style F-2025-0001, F-2025-0002, ...
+ * en se basant sur le plus grand "numero" déjà présent.
+ */
+async function generateNumero() {
+  const year = new Date().getFullYear();
+
+  // On récupère le plus grand numero existant
+  const { data, error } = await supabase
+    .from('factures')
+    .select('numero')
+    .order('numero', { ascending: false })
+    .limit(1);
+
+  let nextNumber = 1;
+
+  if (!error && data && data.length > 0 && data[0].numero) {
+    const last = String(data[0].numero);
+    const match = last.match(/(\d+)(?!.*\d)/); // derniers chiffres
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (Number.isFinite(n)) {
+        nextNumber = n + 1;
+      }
+    }
+  }
+
+  return `F-${year}-${String(nextNumber).padStart(4, '0')}`;
+}
+
 // POST /api/factures
 export async function POST(req: Request) {
   try {
@@ -122,10 +152,14 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ on génère un numero pour respecter le NOT NULL
+    const numero = await generateNumero();
+
     // Insertion de la facture
     const { data: inserted, error } = await supabase
       .from('factures')
       .insert({
+        numero,                           // ✅ maintenant on remplit cette colonne
         type_document: typeDocument,
         date,
         client_id: clientId,
