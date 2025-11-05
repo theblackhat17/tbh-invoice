@@ -11,9 +11,9 @@ export async function GET(req: Request) {
   const clientId = searchParams.get('clientId');
 
   try {
-    // 🔹 Détail d'une facture
+    // 🔹 Détail d'une facture (+ prestations)
     if (id) {
-      const { data, error } = await supabase
+      const { data: facture, error } = await supabase
         .from('factures')
         .select(
           `
@@ -23,8 +23,7 @@ export async function GET(req: Request) {
           type_document,
           total_ht,
           client_id,
-          clients ( id, nom, adresse ),
-          facture_lignes ( id, description, quantite, prix_unit )
+          clients ( id, nom, adresse )
         `,
         )
         .eq('id', id)
@@ -35,14 +34,26 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      if (!data) {
+      if (!facture) {
         return NextResponse.json(
           { error: 'Facture introuvable.' },
           { status: 404 },
         );
       }
 
-      const f: any = data;
+      // on va chercher les lignes dans "prestations"
+      const { data: lignes, error: err2 } = await supabase
+        .from('prestations')
+        .select('id, description, quantite, prix_unit')
+        .eq('facture_id', id)
+        .order('id');
+
+      if (err2) {
+        console.error('GET /api/factures prestations error:', err2);
+        return NextResponse.json({ error: err2.message }, { status: 500 });
+      }
+
+      const f: any = facture;
 
       return NextResponse.json({
         id: f.id,
@@ -52,7 +63,7 @@ export async function GET(req: Request) {
         totalHT: f.total_ht,
         clientId: f.client_id,
         client: f.clients,
-        prestations: (f.facture_lignes ?? []).map((l: any) => ({
+        prestations: (lignes ?? []).map((l: any) => ({
           id: l.id,
           description: l.description,
           quantite: l.quantite,
@@ -116,7 +127,6 @@ export async function GET(req: Request) {
 async function generateNumero() {
   const year = new Date().getFullYear();
 
-  // On récupère le plus grand numero existant
   const { data, error } = await supabase
     .from('factures')
     .select('numero')
@@ -127,7 +137,7 @@ async function generateNumero() {
 
   if (!error && data && data.length > 0 && data[0].numero) {
     const last = String(data[0].numero);
-    const match = last.match(/(\d+)(?!.*\d)/); // derniers chiffres
+    const match = last.match(/(\d+)(?!.*\d)/);
     if (match) {
       const n = parseInt(match[1], 10);
       if (Number.isFinite(n)) {
@@ -152,14 +162,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ on génère un numero pour respecter le NOT NULL
     const numero = await generateNumero();
 
-    // Insertion de la facture
     const { data: inserted, error } = await supabase
       .from('factures')
       .insert({
-        numero,                           // ✅ maintenant on remplit cette colonne
+        numero,
         type_document: typeDocument,
         date,
         client_id: clientId,
@@ -175,7 +183,6 @@ export async function POST(req: Request) {
 
     const factureId = (inserted as any).id;
 
-    // Insertion des lignes
     if (Array.isArray(prestations) && prestations.length > 0) {
       const lignes = prestations.map((p: any) => ({
         facture_id: factureId,
@@ -184,10 +191,10 @@ export async function POST(req: Request) {
         prix_unit: p.prixUnit ?? 0,
       }));
       const { error: errLines } = await supabase
-        .from('facture_lignes')
+        .from('prestations') // ✅ ici
         .insert(lignes);
       if (errLines) {
-        console.error('POST /api/factures lignes error:', errLines);
+        console.error('POST /api/factures prestations error:', errLines);
       }
     }
 
@@ -214,7 +221,6 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const { typeDocument, date, clientId, prestations, totalHT } = body;
 
-    // Mise à jour de la facture
     const { error: errUpdate } = await supabase
       .from('factures')
       .update({
@@ -230,14 +236,14 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: errUpdate.message }, { status: 500 });
     }
 
-    // Remplacement des lignes : on supprime puis on recrée
+    // on purge les anciennes lignes dans "prestations"
     const { error: errDel } = await supabase
-      .from('facture_lignes')
+      .from('prestations')
       .delete()
       .eq('facture_id', id);
 
     if (errDel) {
-      console.error('PUT /api/factures delete lignes error:', errDel);
+      console.error('PUT /api/factures delete prestations error:', errDel);
     }
 
     if (Array.isArray(prestations) && prestations.length > 0) {
@@ -248,10 +254,10 @@ export async function PUT(req: Request) {
         prix_unit: p.prixUnit ?? 0,
       }));
       const { error: errIns } = await supabase
-        .from('facture_lignes')
+        .from('prestations')
         .insert(lignes);
       if (errIns) {
-        console.error('PUT /api/factures insert lignes error:', errIns);
+        console.error('PUT /api/factures insert prestations error:', errIns);
       }
     }
 
@@ -275,8 +281,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    // On supprime d’abord les lignes, puis la facture
-    await supabase.from('facture_lignes').delete().eq('facture_id', id);
+    await supabase.from('prestations').delete().eq('facture_id', id);
     const { error } = await supabase.from('factures').delete().eq('id', id);
 
     if (error) {

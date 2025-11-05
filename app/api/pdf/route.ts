@@ -1,4 +1,3 @@
-// app/api/pdf/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -26,12 +25,10 @@ async function fetchFactureFull(id: string) {
     .eq('id', id)
     .single();
 
-  if (error || !facture)
-    throw new Error(error?.message || 'Facture introuvable');
+  if (error || !facture) throw new Error(error?.message || 'Facture introuvable');
 
-  // 🔥 ICI : on lit bien dans "facture_lignes" et plus dans "prestations"
   const { data: lignes, error: err2 } = await supabaseAdmin
-    .from('facture_lignes')
+    .from('prestations')              // ✅ ici
     .select('description, quantite, prix_unit')
     .eq('facture_id', id)
     .order('id');
@@ -58,8 +55,8 @@ async function fetchFactureFull(id: string) {
 
 /* --------------------- PDF Theme --------------------- */
 const COLORS = {
-  navy: rgb(0.05, 0.1, 0.22),      // #0d1938 - bandeau header
-  blue: rgb(0.0, 0.45, 0.75),      // bleu vif
+  navy: rgb(0.05, 0.1, 0.22),
+  blue: rgb(0.0, 0.45, 0.75),
   black: rgb(0.05, 0.05, 0.05),
   gray: rgb(0.4, 0.4, 0.4),
   lightGray: rgb(0.9, 0.9, 0.9),
@@ -68,13 +65,15 @@ const COLORS = {
 };
 
 const A4 = { w: 595, h: 842 };
-const M = 40; // marges
+const M = 40;
 
 function formatPrice(n: number) {
-  return new Intl.NumberFormat('fr-FR', { 
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2 
-  }).format(n) + ' €';
+  return (
+    new Intl.NumberFormat('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n) + ' €'
+  );
 }
 
 function wrapText(text: string, maxChars = 60) {
@@ -110,11 +109,10 @@ export async function GET(req: NextRequest) {
     const page = pdf.addPage([A4.w, A4.h]);
     let y = A4.h - M;
 
-    // ========== BANDEAU HEADER (bleu marine) ==========
+    // HEADER
     const headerH = 100;
     page.drawRectangle({ x: 0, y: A4.h - headerH, width: A4.w, height: headerH, color: COLORS.navy });
-    
-    // Logo / nom entreprise
+
     page.drawText('TBH ONE', {
       x: M,
       y: A4.h - 50,
@@ -123,12 +121,11 @@ export async function GET(req: NextRequest) {
       color: COLORS.white,
     });
 
-    // Cartouche "FACTURE N° xxx" (rectangle blanc en haut à droite)
     const badgeW = 260;
     const badgeH = 56;
     const badgeX = A4.w - M - badgeW;
     const badgeY = A4.h - 32 - badgeH;
-    
+
     page.drawRectangle({
       x: badgeX,
       y: badgeY,
@@ -136,7 +133,7 @@ export async function GET(req: NextRequest) {
       height: badgeH,
       color: COLORS.white,
     });
-    
+
     page.drawText(f.typeDocument.toUpperCase(), {
       x: badgeX + 15,
       y: badgeY + 34,
@@ -144,7 +141,7 @@ export async function GET(req: NextRequest) {
       font: fontBold,
       color: COLORS.gray,
     });
-    
+
     page.drawText(`N° ${f.numero}`, {
       x: badgeX + 15,
       y: badgeY + 16,
@@ -155,11 +152,11 @@ export async function GET(req: NextRequest) {
 
     y = A4.h - headerH - 20;
 
-    // ========== INFOS ENTREPRISE + DATE (3 colonnes) ==========
+    // INFOS ENTREPRISE
     page.drawText('ENTREPRISE', { x: M, y, size: 9, font: fontBold, color: COLORS.gray });
     page.drawText('ADRESSE', { x: M + 180, y, size: 9, font: fontBold, color: COLORS.gray });
     page.drawText('SIRET', { x: M + 360, y, size: 9, font: fontBold, color: COLORS.gray });
-    
+
     y -= 14;
     page.drawText('VANDEWALLE CLEMENT — TBH ONE', { x: M, y, size: 10, font, color: COLORS.black });
     page.drawText('39 Avenue Émile Zola, 59800 Lille', { x: M + 180, y, size: 10, font, color: COLORS.black });
@@ -171,7 +168,7 @@ export async function GET(req: NextRequest) {
 
     y -= 30;
 
-    // ========== BLOC CLIENT (cadre bleu clair) ==========
+    // BLOC CLIENT
     const clientBoxH = 80;
     page.drawRectangle({
       x: M,
@@ -210,19 +207,17 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    y -= (clientBoxH + 24);
+    y -= clientBoxH + 24;
 
-    // ========== TABLEAU PRESTATIONS ==========
+    // TABLEAU PRESTATIONS
     const tableHeaderH = 28;
     const rowH = 24;
-    
-    // Colonnes
+
     const colDescX = M;
     const colQtyX = A4.w - M - 270;
     const colPUX = A4.w - M - 180;
     const colTotalX = A4.w - M - 90;
 
-    // Header tableau
     page.drawRectangle({
       x: M - 5,
       y: y - tableHeaderH,
@@ -238,11 +233,9 @@ export async function GET(req: NextRequest) {
 
     y -= tableHeaderH;
 
-    // Lignes prestations
     f.prestations.forEach((p, idx) => {
       const total = p.quantite * p.prixUnit;
-      
-      // Alternance de couleur
+
       if (idx % 2 === 1) {
         page.drawRectangle({
           x: M - 5,
@@ -290,7 +283,7 @@ export async function GET(req: NextRequest) {
 
     y -= 16;
 
-    // ========== BLOC TOTAL (encart bleu marine en bas à droite) ==========
+    // BLOC TOTAL
     const totalBoxW = 240;
     const totalBoxH = 70;
     const totalBoxX = A4.w - M - totalBoxW;
@@ -320,7 +313,6 @@ export async function GET(req: NextRequest) {
       color: COLORS.white,
     });
 
-    // Note TVA
     page.drawText('TVA non applicable (art. 293B du CGI)', {
       x: M,
       y: totalBoxY + 28,
@@ -329,7 +321,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.gray,
     });
 
-    // ========== FOOTER (infos bancaires) ==========
+    // FOOTER
     const footerY = 80;
     page.drawRectangle({
       x: 0,
@@ -371,7 +363,6 @@ export async function GET(req: NextRequest) {
       color: COLORS.gray,
     });
 
-    // ========== SAVE & UPLOAD ==========
     const pdfBytes = await pdf.save();
     const buffer = Buffer.from(pdfBytes);
 
