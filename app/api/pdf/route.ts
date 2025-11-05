@@ -1,3 +1,5 @@
+/* --------------------- app/api/pdf/route.ts --------------------- */
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +30,7 @@ async function fetchFactureFull(id: string) {
   if (error || !facture) throw new Error(error?.message || 'Facture introuvable');
 
   const { data: lignes, error: err2 } = await supabaseAdmin
-    .from('prestations')              // ✅ ici
+    .from('prestations')
     .select('description, quantite, prix_unit')
     .eq('facture_id', id)
     .order('id');
@@ -97,7 +99,10 @@ function wrapText(text: string, maxChars = 60) {
 /* --------------------- Route --------------------- */
 export async function GET(req: NextRequest) {
   try {
-    const id = new URL(req.url).searchParams.get('id');
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+    const action = url.searchParams.get('action') || 'view'; // 'view' ou 'download'
+    
     if (!id) return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
 
     const f = await fetchFactureFull(id);
@@ -366,32 +371,25 @@ export async function GET(req: NextRequest) {
     const pdfBytes = await pdf.save();
     const buffer = Buffer.from(pdfBytes);
 
+    // Optionnel : Sauvegarder dans Supabase en arrière-plan
     await ensureBucket();
     const yyyy = new Date(f.date).getFullYear();
     const mm = String(new Date(f.date).getMonth() + 1).padStart(2, '0');
     const path = `${yyyy}/${mm}/Facture_${f.numero}_${f.id}.pdf`;
 
-    const { error: upErr } = await supabaseAdmin.storage
+    // Upload en arrière-plan sans bloquer la réponse
+    supabaseAdmin.storage
       .from('factures')
-      .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
+      .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true })
+      .catch((err) => console.error('Upload error:', err));
 
-    if (upErr) {
-      return new NextResponse(buffer, {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="Facture_${f.numero}.pdf"`,
-          'Cache-Control': 'no-store',
-        },
-      });
-    }
-
-    const { data: pub } = supabaseAdmin.storage.from('factures').getPublicUrl(path);
-    if (pub?.publicUrl) return NextResponse.redirect(pub.publicUrl, 302);
-
+    // ✅ TOUJOURS retourner le PDF directement
+    const disposition = action === 'download' ? 'attachment' : 'inline';
+    
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="Facture_${f.numero}.pdf"`,
+        'Content-Disposition': `${disposition}; filename="Facture_${f.numero}.pdf"`,
         'Cache-Control': 'no-store',
       },
     });

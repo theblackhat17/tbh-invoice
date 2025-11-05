@@ -1,3 +1,5 @@
+/* --------------------- app/factures/page.tsx --------------------- */
+
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
@@ -17,7 +19,6 @@ interface Facture {
 }
 
 export default function FacturesPage() {
-  // 🔹 Ici on ne fait que le wrapper + Suspense
   return (
     <Suspense fallback={<div className="text-center py-20">Chargement…</div>}>
       <FacturesPageInner />
@@ -95,7 +96,7 @@ function FacturesPageInner() {
             <button
               onClick={() => setSort(sort === 'asc' ? 'desc' : 'asc')}
               className="btn-ghost flex-1 sm:flex-none"
-              title="Changer l’ordre"
+              title="Changer l'ordre"
             >
               {sort === 'asc'
                 ? '⬆️ Plus anciennes'
@@ -173,13 +174,17 @@ function FacturesPageInner() {
                   </td>
                   <td className="py-3 px-5 text-center">
                     <div className="flex items-center justify-center gap-3">
-                      <Link
-                        href={`/factures/${f.id}`}
+                      {/* 👁️ Visualiser le PDF dans un nouvel onglet */}
+                      <a
+                        href={`/api/pdf?id=${f.id}&action=view`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="hover:text-blue-600"
-                        title="Voir la facture"
+                        title="Visualiser le PDF"
                       >
                         👁️
-                      </Link>
+                      </a>
+                      {/* ✏️ Modifier la facture */}
                       <Link
                         href={`/factures/${f.id}/edit`}
                         className="hover:text-amber-600"
@@ -187,15 +192,15 @@ function FacturesPageInner() {
                       >
                         ✏️
                       </Link>
+                      {/* 📥 Télécharger le PDF */}
                       <a
-                        href={`/api/pdf?id=${f.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href={`/api/pdf?id=${f.id}&action=download`}
                         className="hover:text-green-600"
                         title="Télécharger le PDF"
                       >
                         📥
                       </a>
+                      {/* 🗑️ Supprimer */}
                       <button
                         onClick={() => deleteFacture(f.id)}
                         className="hover:text-red-600"
