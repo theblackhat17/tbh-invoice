@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createClient } from '@/lib/supabase-browser';
 
-export async function POST(request: NextRequest) {
+export async function GET() {
   try {
     // Vérifier l'authentification
     const supabase = createClient();
@@ -15,37 +15,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { action, resource } = body;
-
-    // Récupérer les infos de la requête
-    const ip = request.headers.get('x-forwarded-for') || 
-               request.headers.get('x-real-ip') || 
-               'unknown';
-    const userAgent = request.headers.get('user-agent') || 'unknown';
-
-    // Insérer le log (avec service role key pour bypasser RLS)
-    const { error } = await supabaseAdmin
+    // Récupérer les logs (50 derniers)
+    const { data: logs, error } = await supabaseAdmin
       .from('access_logs')
-      .insert({
-        user_id: user.id,
-        action,
-        resource,
-        ip_address: ip,
-        user_agent: userAgent,
-      });
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
 
     if (error) {
-      console.error('Log insertion error:', error);
+      console.error('Erreur récupération logs:', error);
       return NextResponse.json(
-        { error: 'Erreur lors du logging' },
+        { error: 'Erreur lors de la récupération des logs' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(logs || []);
   } catch (error) {
-    console.error('Log API error:', error);
+    console.error('Logs API error:', error);
     return NextResponse.json(
       { error: 'Erreur serveur' },
       { status: 500 }

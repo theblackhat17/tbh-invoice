@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase-browser";
 
 const links = [
   { href: "/", label: "Accueil", icon: "🏠" },
   { href: "/factures", label: "Factures", icon: "📄" },
   { href: "/clients", label: "Clients", icon: "👥" },
+  { href: "/logs", label: "Logs", icon: "📊" },
 ];
 
 export default function Navbar() {
@@ -16,6 +17,26 @@ export default function Navbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Vérifier si l'utilisateur est connecté
+  useEffect(() => {
+    const checkAuth = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(!!user);
+    };
+    
+    checkAuth();
+
+    // Écouter les changements d'auth
+    const supabase = createClient();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setIsAuthenticated(!!session?.user);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const isActive = (href: string) =>
     pathname === href || (href !== "/" && pathname?.startsWith(href));
@@ -68,15 +89,17 @@ export default function Navbar() {
               ➕ Nouveau client
             </Link>
             
-            {/* Bouton déconnexion */}
-            <button
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="ml-2 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
-              title="Se déconnecter"
-            >
-              {loggingOut ? '⏳' : '🚪 Déconnexion'}
-            </button>
+            {/* Bouton déconnexion - visible seulement si connecté */}
+            {isAuthenticated && (
+              <button
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="ml-2 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                title="Se déconnecter"
+              >
+                {loggingOut ? '⏳' : '🚪 Déconnexion'}
+              </button>
+            )}
           </div>
 
           {/* Mobile burger */}
@@ -113,17 +136,19 @@ export default function Navbar() {
                 </Link>
               </div>
               
-              {/* Bouton déconnexion mobile */}
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  handleLogout();
-                }}
-                disabled={loggingOut}
-                className="mt-2 w-full px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 bg-red-50 dark:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {loggingOut ? '⏳ Déconnexion...' : '🚪 Se déconnecter'}
-              </button>
+              {/* Bouton déconnexion mobile - visible seulement si connecté */}
+              {isAuthenticated && (
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    handleLogout();
+                  }}
+                  disabled={loggingOut}
+                  className="mt-2 w-full px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 bg-red-50 dark:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {loggingOut ? '⏳ Déconnexion...' : '🚪 Se déconnecter'}
+                </button>
+              )}
             </div>
           </div>
         )}
