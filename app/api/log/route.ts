@@ -1,50 +1,94 @@
-// app/api/log/route.ts (GET amélioré avec pagination + vérif admin)
+// app/api/log/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createClient } from '@/lib/supabase-browser';
 
-async function requireAdmin(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, status: 401, json: { error: 'Non autorisé' } };
+type LogPayload = {
+  action: string;
+  resource: string;
+  status?: 'success' | 'failed';
+  userId?: string | null;
+};
 
-  // Vérifie champ is_admin dans ta table users (adapter si tu as un autre nom)
-  const { data: rows } = await supabaseAdmin
-    .from('users') // <-- adapte si ta table d'utilisateurs s'appelle différemment
-    .select('is_admin')
-    .eq('id', user.id)
-    .single();
-
-  if (!rows?.is_admin) return { ok: false, status: 403, json: { error: 'Accès réservé aux admins' } };
-  return { ok: true, user };
+function getClientIp(request: Request): string {
+  const xfwd = request.headers.get('x-forwarded-for');
+  if (xfwd) return xfwd.split(',')[0].trim();
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp;
+  return 'unknown';
 }
 
+/* ----------- POST : créer un log ----------- */
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as LogPayload;
+
+    const action = body.action?.trim();
+    const resource = body.resource?.trim();
+    const status = body.status ?? 'success';
+    const userId = body.userId ?? null;
+
+    if (!action || !resource) {
+      return NextResponse.json(
+        { error: 'action et resource obligatoires' },
+        { status: 400 }
+      );
+    }
+
+    const ip_address = getClientIp(request);
+    const user_agent = request.headers.get('user-agent') ?? 'unknown';
+
+    const { error } = await supabaseAdmin.from('access_logs').insert({
+      user_id: userId,
+      action,
+      resource,
+      status,
+      ip_address,
+      user_agent,
+    });
+
+    if (error) {
+      console.error('Erreur log:', error);
+      return NextResponse.json(
+        { error: 'Erreur lors de la création du log' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ message: 'Log enregistré' });
+  } catch (err) {
+    console.error('Erreur POST /api/log:', err);
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+  }
+}
+
+/* ----------- GET : lister les logs avec pagination ----------- */
 export async function GET(request: Request) {
   try {
-    // Vérif admin
-    const check = await requireAdmin(request);
-    if (!check.ok) return NextResponse.json(check.json, { status: check.status });
-
     const url = new URL(request.url);
-    const limit = Math.min(Number(url.searchParams.get('limit') ?? 100), 1000); // cap max 1000
-    const offset = Number(url.searchParams.get('offset') ?? 0);
-    const action = url.searchParams.get('action') ?? null;
-    const ip = url.searchParams.get('ip') ?? null;
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 1000);
+    const offset = Number(url.searchParams.get('offset') ?? '0');
+    const ip = url.searchParams.get('ip') || undefined;
+    const action = url.searchParams.get('action') || undefined;
+    const status = url.searchParams.get('status') || undefined;
 
     let query = supabaseAdmin
       .from('access_logs')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1); // range uses start,end
+      .range(offset, offset + limit - 1);
 
-    if (action) query = query.eq('action', action);
     if (ip) query = query.eq('ip_address', ip);
+    if (action) query = query.eq('action', action);
+    if (status && status !== 'all') query = query.eq('status', status);
 
     const { data, count, error } = await query;
 
     if (error) {
       console.error('Erreur récupération logs:', error);
-      return NextResponse.json({ error: 'Erreur lors de la récupération des logs' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Erreur lors de la récupération des logs' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
