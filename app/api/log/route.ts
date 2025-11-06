@@ -9,11 +9,40 @@ type LogPayload = {
   userId?: string | null;
 };
 
+function normalizeIp(ip: string): string {
+  // Si c'est une IPv4 mappée dans IPv6 (::ffff:192.168.1.1)
+  if (ip.startsWith('::ffff:')) {
+    return ip.substring(7); // Retourne juste la partie IPv4
+  }
+  
+  // Si c'est une IPv6 locale
+  if (ip === '::1') {
+    return '127.0.0.1';
+  }
+  
+  // Sinon retourner l'IP telle quelle
+  return ip;
+}
+
 function getClientIp(request: Request): string {
-  const xfwd = request.headers.get('x-forwarded-for');
-  if (xfwd) return xfwd.split(',')[0].trim();
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
+  // Essayer différentes sources d'IP
+  const headers = [
+    'x-forwarded-for',
+    'x-real-ip',
+    'cf-connecting-ip', // Cloudflare
+    'true-client-ip',   // Cloudflare Enterprise
+    'x-client-ip',
+  ];
+
+  for (const header of headers) {
+    const value = request.headers.get(header);
+    if (value) {
+      // Prendre la première IP de la liste
+      const ip = value.split(',')[0].trim();
+      return normalizeIp(ip);
+    }
+  }
+
   return 'unknown';
 }
 
