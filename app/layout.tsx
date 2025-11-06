@@ -5,6 +5,12 @@ import Navbar from "@/components/Navbar";
 export const metadata: Metadata = {
   title: "TBH Invoice - Gestion de Factures",
   description: "Application de gestion de factures pour TBH ONE",
+  icons: {
+    icon: '/favicon.png', // ton favicon dans /public
+  },
+  other: {
+    'google-site-verification': 'VZKrlEwDzHB8p4y2kL15wCUqv75VZlBl3wKSAjAaRCU',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
