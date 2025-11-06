@@ -28,17 +28,31 @@ function LoginForm() {
       });
 
       if (error) {
-        throw error;
-      }
-
-      if (data.user) {
-        // Log l'accès
+        // ❌ Log échec de connexion
         await fetch('/api/log', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'LOGIN',
+            action: 'login_attempt',
             resource: 'auth',
+            status: 'failed',
+            userId: null,
+          }),
+        }).catch(() => {});
+
+        throw error;
+      }
+
+      if (data.user) {
+        // ✅ Log succès de connexion
+        await fetch('/api/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'login_success',
+            resource: 'auth',
+            status: 'success',
+            userId: data.user.id,
           }),
         }).catch(() => {});
 
