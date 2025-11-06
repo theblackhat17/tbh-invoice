@@ -4,7 +4,12 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 function getClientIp(request: Request): string {
   const xfwd = request.headers.get('x-forwarded-for');
-  if (xfwd) return xfwd.split(',')[0].trim();
+  if (xfwd) {
+    const ips = xfwd.split(',').map(ip => ip.trim());
+    // Chercher une IPv4 en priorité
+    const ipv4 = ips.find(ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip));
+    return ipv4 || ips[0];
+  }
   const realIp = request.headers.get('x-real-ip');
   if (realIp) return realIp;
   return 'unknown';

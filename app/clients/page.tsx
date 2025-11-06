@@ -18,20 +18,60 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/clients');
-        const data = await res.json();
-        setClients(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error('Erreur chargement clients', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadClients();
   }, []);
+
+  async function loadClients() {
+    try {
+      const res = await fetch('/api/clients');
+      const data = await res.json();
+      setClients(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Erreur chargement clients', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete(client: Client) {
+    if (client.nbFactures && client.nbFactures > 0) {
+      alert(
+        `⚠️ Impossible de supprimer ce client.\n\nIl possède ${client.nbFactures} facture${client.nbFactures > 1 ? 's' : ''}.\nSupprimez d'abord ses factures.`
+      );
+      return;
+    }
+
+    const confirmed = confirm(
+      `🗑️ Supprimer le client "${client.nom}" ?\n\nCette action est irréversible.`
+    );
+
+    if (!confirmed) return;
+
+    setDeleting(client.id);
+
+    try {
+      const res = await fetch(`/api/clients?id=${client.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || 'Erreur lors de la suppression');
+      }
+
+      // Recharger la liste
+      await loadClients();
+      alert('✅ Client supprimé avec succès !');
+    } catch (err: any) {
+      console.error('Erreur suppression:', err);
+      alert(`❌ Erreur : ${err.message}`);
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   const filtered = useMemo(
     () =>
@@ -63,7 +103,7 @@ export default function ClientsPage() {
           <h1 className="text-4xl font-extrabold mb-1">👥 Clients</h1>
           <p className="text-gray-500 text-sm">
             {clients.length === 0
-              ? "Aucun client enregistré pour l’instant."
+              ? "Aucun client enregistré pour l'instant."
               : `${clients.length} client${clients.length > 1 ? 's' : ''} au total`}
           </p>
         </div>
@@ -100,6 +140,7 @@ export default function ClientsPage() {
               .map((x) => x[0]?.toUpperCase())
               .join('');
             const nb = c.nbFactures ?? 0;
+            const isDeleting = deleting === c.id;
 
             return (
               <div
@@ -170,7 +211,7 @@ export default function ClientsPage() {
                     className="btn-primary text-xs flex-1 justify-center"
                     title="Créer une facture pour ce client"
                   >
-                    ➕ Nouvelle facture
+                    ➕ Nouvelle
                   </Link>
                   <Link
                     href={`/clients/${c.id}`}
@@ -179,6 +220,18 @@ export default function ClientsPage() {
                   >
                     ✏️ Modifier
                   </Link>
+                  <button
+                    onClick={() => handleDelete(c)}
+                    disabled={isDeleting}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors flex-1 ${
+                      isDeleting
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                    }`}
+                    title="Supprimer ce client"
+                  >
+                    {isDeleting ? '⏳' : '🗑️'} Supprimer
+                  </button>
                 </div>
               </div>
             );
