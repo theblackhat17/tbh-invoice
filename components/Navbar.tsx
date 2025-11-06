@@ -1,8 +1,7 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+import { createClient } from "@/lib/supabase-browser";
 
 const links = [
   { href: "/", label: "Accueil", icon: "🏠" },
@@ -12,10 +11,29 @@ const links = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const isActive = (href: string) =>
     pathname === href || (href !== "/" && pathname?.startsWith(href));
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    
+    setLoggingOut(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.push('/login');
+      router.refresh();
+    } catch (error) {
+      console.error('Logout error:', error);
+      alert('Erreur lors de la déconnexion');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40">
@@ -47,6 +65,16 @@ export default function Navbar() {
             <Link href="/clients/nouveau" className="btn-success">
               ➕ Nouveau client
             </Link>
+            
+            {/* Bouton déconnexion */}
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="ml-2 px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+              title="Se déconnecter"
+            >
+              {loggingOut ? '⏳' : '🚪 Déconnexion'}
+            </button>
           </div>
 
           {/* Mobile burger */}
@@ -82,6 +110,18 @@ export default function Navbar() {
                   ➕ Nouveau client
                 </Link>
               </div>
+              
+              {/* Bouton déconnexion mobile */}
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  handleLogout();
+                }}
+                disabled={loggingOut}
+                className="mt-2 w-full px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 bg-red-50 dark:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loggingOut ? '⏳ Déconnexion...' : '🚪 Se déconnecter'}
+              </button>
             </div>
           </div>
         )}
