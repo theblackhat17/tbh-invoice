@@ -1,69 +1,58 @@
-// app/api/log/route.ts
+// app/api/log/route.ts (GET amélioré avec pagination + vérif admin)
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { createClient } from '@/lib/supabase-browser';
 
-type LogPayload = {
-  action: string;                // ex: "login_attempt"
-  resource: string;              // ex: "email=test@example.com"
-  status?: 'success' | 'failed'; // "success" ou "failed"
-  userId?: string | null;        // facultatif
-};
+async function requireAdmin(request: Request) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, status: 401, json: { error: 'Non autorisé' } };
 
-function getClientIp(request: Request): string {
-  const xfwd = request.headers.get('x-forwarded-for');
-  if (xfwd) return xfwd.split(',')[0].trim();
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
-  return 'unknown';
+  // Vérifie champ is_admin dans ta table users (adapter si tu as un autre nom)
+  const { data: rows } = await supabaseAdmin
+    .from('users') // <-- adapte si ta table d'utilisateurs s'appelle différemment
+    .select('is_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (!rows?.is_admin) return { ok: false, status: 403, json: { error: 'Accès réservé aux admins' } };
+  return { ok: true, user };
 }
 
-export async function POST(request: Request) {
+export async function GET(request: Request) {
   try {
-    const body = (await request.json()) as LogPayload;
+    // Vérif admin
+    const check = await requireAdmin(request);
+    if (!check.ok) return NextResponse.json(check.json, { status: check.status });
 
-    const action = body.action?.trim();
-    const resource = body.resource?.trim();
-    const status = body.status ?? 'success';
-    const userId = body.userId ?? null;
+    const url = new URL(request.url);
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 100), 1000); // cap max 1000
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const action = url.searchParams.get('action') ?? null;
+    const ip = url.searchParams.get('ip') ?? null;
 
-    if (!action || !resource) {
-      return NextResponse.json({ error: 'action et resource obligatoires' }, { status: 400 });
-    }
+    let query = supabaseAdmin
+      .from('access_logs')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1); // range uses start,end
 
-    const ip_address = getClientIp(request);
-    const user_agent = request.headers.get('user-agent') ?? 'unknown';
+    if (action) query = query.eq('action', action);
+    if (ip) query = query.eq('ip_address', ip);
 
-    const { error } = await supabaseAdmin.from('access_logs').insert({
-      user_id: userId,
-      action,
-      resource,
-      status,
-      ip_address,
-      user_agent,
-    });
+    const { data, count, error } = await query;
 
     if (error) {
-      console.error('Erreur log:', error);
-      return NextResponse.json({ error: 'Erreur lors de la création du log' }, { status: 500 });
+      console.error('Erreur récupération logs:', error);
+      return NextResponse.json({ error: 'Erreur lors de la récupération des logs' }, { status: 500 });
     }
 
-    return NextResponse.json({ message: 'Log enregistré' });
-  } catch (err) {
-    console.error('Erreur POST /api/log:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
-  }
-}
-
-export async function GET() {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('access_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if (error) throw error;
-    return NextResponse.json(data ?? []);
+    return NextResponse.json({
+      total: count ?? null,
+      limit,
+      offset,
+      data: data ?? [],
+    });
   } catch (err) {
     console.error('Erreur GET /api/log:', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
