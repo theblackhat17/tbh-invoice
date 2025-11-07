@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabaseClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createClient } from '@/lib/supabase-browser';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 // Helper to get client IP
 function getClientIp(request: Request): string {
@@ -40,10 +41,22 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const clientId = searchParams.get('clientId');
+  const cookieStore = cookies();
+
+  const supabaseServer = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  );
 
   try {
-    const supabaseBrowser = createClient();
-    const { data: { user } } = await supabaseBrowser.auth.getUser();
+    const { data: { user } } = await supabaseServer.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
@@ -179,9 +192,21 @@ async function generateNumero() {
 
 // POST /api/devis - Create a new quote
 export async function POST(req: Request) {
+  const cookieStore = cookies();
+  const supabaseServer = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  );
+
   try {
-    const supabaseBrowser = createClient();
-    const { data: { user } } = await supabaseBrowser.auth.getUser();
+    const { data: { user } } = await supabaseServer.auth.getUser();
 
     const body = await req.json();
     const { date, clientId, prestations, totalHT, status } = body;
@@ -242,14 +267,26 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const cookieStore = cookies();
+
+  const supabaseServer = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  );
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
   try {
-    const supabaseBrowser = createClient();
-    const { data: { user } } = await supabaseBrowser.auth.getUser();
+    const { data: { user } } = await supabaseServer.auth.getUser();
 
     const body = await req.json();
     const { date, clientId, prestations, totalHT, status } = body;
@@ -298,14 +335,26 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const cookieStore = cookies();
+
+  const supabaseServer = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  );
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
   try {
-    const supabaseBrowser = createClient();
-    const { data: { user } } = await supabaseBrowser.auth.getUser();
+    const { data: { user } } = await supabaseServer.auth.getUser();
 
     // Associated lines are deleted by CASCADE constraint
     const { error } = await supabase.from('devis').delete().eq('id', id);
