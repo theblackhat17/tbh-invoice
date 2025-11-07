@@ -216,6 +216,7 @@ export async function POST(req: Request) {
         date,
         client_id: clientId,
         total_ht: totalHT ?? 0,
+        user_id: user?.id,
       })
       .select('id, numero')
       .single();
