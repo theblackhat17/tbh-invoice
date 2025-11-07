@@ -175,23 +175,7 @@ function NouvelleFactureInner() {
           <h2 className="text-2xl font-bold mb-4">
             Informations générales
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Type *
-              </label>
-              <select
-                value={form.typeDocument}
-                onChange={(e) =>
-                  setForm({ ...form, typeDocument: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="Facture">Facture</option>
-                <option value="Devis">Devis</option>
-              </select>
-            </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">
                 Date *
@@ -342,7 +326,7 @@ function NouvelleFactureInner() {
                 </div>
               </div>
 
-              <div className="col-span-1 flex justify-center.items-end">
+              <div className="col-span-1 flex justify-center items-end">
                 <button
                   type="button"
                   onClick={() => removeLine(i)}
