@@ -42,7 +42,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const clientId = searchParams.get('clientId');
-  const supabaseServer = createClient();
+  const supabaseServer = await createClient();
 
   try {
     const { data: { user } } = await supabaseServer.auth.getUser();
@@ -181,7 +181,7 @@ async function generateNumero() {
 
 // POST /api/devis - Create a new quote
 export async function POST(req: Request) {
-  const supabaseServer = createClient();
+  const supabaseServer = await createClient();
 
   try {
     const { data: { user } } = await supabaseServer.auth.getUser();
@@ -245,7 +245,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
-  const supabaseServer = createClient();
+  const supabaseServer = await createClient();
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
@@ -301,7 +301,7 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
-  const supabaseServer = createClient();
+  const supabaseServer = await createClient();
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
