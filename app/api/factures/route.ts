@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createClient } from '@/lib/supabase-server';
 
@@ -51,7 +50,7 @@ export async function GET(req: Request) {
 
     // Détail d'une facture
     if (id) {
-      const { data: facture, error } = await supabase
+      const { data: facture, error } = await supabaseServer
         .from('factures')
         .select(
           `
@@ -84,7 +83,7 @@ export async function GET(req: Request) {
 
       await logAction('invoice_viewed', `invoice_${id}`, 'success', req, user.id);
 
-      const { data: lignes, error: err2 } = await supabase
+      const { data: lignes, error: err2 } = await supabaseServer
         .from('prestations')
         .select('id, description, quantite, prix_unit')
         .eq('facture_id', id)
@@ -114,7 +113,7 @@ export async function GET(req: Request) {
     }
 
     // Liste des factures
-    let query = supabase
+    let query = supabaseServer
       .from('factures')
       .select(
         `
@@ -163,9 +162,10 @@ export async function GET(req: Request) {
 }
 
 async function generateNumero() {
+  const supabaseServer = await createClient();
   const year = new Date().getFullYear();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseServer
     .from('factures')
     .select('numero')
     .order('numero', { ascending: false })
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
 
     const numero = await generateNumero();
 
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await supabaseServer
       .from('factures')
       .insert({
         numero,
@@ -235,7 +235,7 @@ export async function POST(req: Request) {
         quantite: p.quantite ?? 0,
         prix_unit: p.prixUnit ?? 0,
       }));
-      const { error: errLines } = await supabase
+      const { error: errLines } = await supabaseServer
         .from('prestations')
         .insert(lignes);
       if (errLines) {
@@ -273,7 +273,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const { typeDocument, date, clientId, prestations, totalHT } = body;
 
-    const { error: errUpdate } = await supabase
+    const { error: errUpdate } = await supabaseServer
       .from('factures')
       .update({
         type_document: typeDocument,
@@ -290,7 +290,7 @@ export async function PUT(req: Request) {
     }
 
     // Purger anciennes lignes
-    await supabase.from('prestations').delete().eq('facture_id', id);
+    await supabaseServer.from('prestations').delete().eq('facture_id', id);
 
     if (Array.isArray(prestations) && prestations.length > 0) {
       const lignes = prestations.map((p: any) => ({
@@ -299,7 +299,7 @@ export async function PUT(req: Request) {
         quantite: p.quantite ?? 0,
         prix_unit: p.prixUnit ?? 0,
       }));
-      await supabase.from('prestations').insert(lignes);
+      await supabaseServer.from('prestations').insert(lignes);
     }
 
     // Logger la modification
@@ -329,8 +329,8 @@ export async function DELETE(req: Request) {
     // Récupérer userId
     const { data: { user } } = await supabaseServer.auth.getUser();
 
-    await supabase.from('prestations').delete().eq('facture_id', id);
-    const { error } = await supabase.from('factures').delete().eq('id', id);
+    await supabaseServer.from('prestations').delete().eq('facture_id', id);
+    const { error } = await supabaseServer.from('factures').delete().eq('id', id);
 
     if (error) {
       console.error('DELETE /api/factures error:', error);

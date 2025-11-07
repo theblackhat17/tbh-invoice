@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createClient } from '@/lib/supabase-server';
 
@@ -53,7 +52,7 @@ export async function GET(req: Request) {
 
     // Get a single quote details
     if (id) {
-      const { data: devis, error } = await supabase
+      const { data: devis, error } = await supabaseServer
         .from('devis')
         .select(`
           id,
@@ -81,7 +80,7 @@ export async function GET(req: Request) {
 
       await logAction('quote_viewed', `quote_${id}`, 'success', req, user.id);
 
-      const { data: lignes, error: err2 } = await supabase
+      const { data: lignes, error: err2 } = await supabaseServer
         .from('prestations_devis')
         .select('id, description, quantite, prix_unit')
         .eq('devis_id', id)
@@ -111,7 +110,7 @@ export async function GET(req: Request) {
     }
 
     // Get list of quotes
-    let query = supabase
+    let query = supabaseServer
       .from('devis')
       .select(`
         id,
@@ -155,9 +154,10 @@ export async function GET(req: Request) {
 
 // Generate a new quote number
 async function generateNumero() {
+  const supabaseServer = await createClient();
   const year = new Date().getFullYear();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseServer
     .from('devis')
     .select('numero')
     .order('numero', { ascending: false })
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
 
     const numero = await generateNumero();
 
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await supabaseServer
       .from('devis')
       .insert({
         numero,
@@ -224,7 +224,7 @@ export async function POST(req: Request) {
         quantite: p.quantite ?? 0,
         prix_unit: p.prixUnit ?? 0,
       }));
-      const { error: errLines } = await supabase
+      const { error: errLines } = await supabaseServer
         .from('prestations_devis')
         .insert(lignes);
       if (errLines) {
@@ -257,7 +257,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const { date, clientId, prestations, totalHT, status } = body;
 
-    const { error: errUpdate } = await supabase
+    const { error: errUpdate } = await supabaseServer
       .from('devis')
       .update({
         date,
@@ -275,7 +275,7 @@ export async function PUT(req: Request) {
 
     // For full updates, clear old lines and insert new ones
     if (Array.isArray(prestations)) {
-        await supabase.from('prestations_devis').delete().eq('devis_id', id);
+        await supabaseServer.from('prestations_devis').delete().eq('devis_id', id);
 
         if (prestations.length > 0) {
             const lignes = prestations.map((p: any) => ({
@@ -284,7 +284,7 @@ export async function PUT(req: Request) {
                 quantite: p.quantite ?? 0,
                 prix_unit: p.prixUnit ?? 0,
             }));
-            await supabase.from('prestations_devis').insert(lignes);
+            await supabaseServer.from('prestations_devis').insert(lignes);
         }
     }
 
@@ -311,7 +311,7 @@ export async function DELETE(req: Request) {
     const { data: { user } } = await supabaseServer.auth.getUser();
 
     // Associated lines are deleted by CASCADE constraint
-    const { error } = await supabase.from('devis').delete().eq('id', id);
+    const { error } = await supabaseServer.from('devis').delete().eq('id', id);
 
     if (error) {
       console.error('DELETE /api/devis error:', error);
