@@ -48,50 +48,23 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
     }
 
-    // Détail d'une facture
+    // Récupération d'une facture spécifique
     if (id) {
       const { data: facture, error } = await supabaseServer
         .from('factures')
-        .select(
-          `
-          id,
-          numero,
-          date,
-          type_document,
-          total_ht,
-          client_id,
-          clients ( id, nom, adresse )
-        `,
-        )
+        .select('*, clients(*)')
         .eq('id', id)
-        .eq('user_id', user.id) // Sécurité : ne récupérer que si l'utilisateur est propriétaire
+        .eq('user_id', user.id)
         .single();
 
-      if (error) {
-        console.error('GET /api/factures?id error:', error);
-        await logAction('invoice_viewed', `invoice_${id}`, 'failed', req, user.id);
-        return NextResponse.json({ error: 'Erreur interne du serveur.' }, { status: 500 });
+      if (error || !facture) {
+        return NextResponse.json({ error: 'Facture non trouvée' }, { status: 404 });
       }
 
-      if (!facture) {
-        await logAction('invoice_viewed', `invoice_${id}`, 'failed', req, user.id);
-        return NextResponse.json(
-          { error: 'Facture introuvable ou accès non autorisé.' },
-          { status: 404 },
-        );
-      }
-
-      await logAction('invoice_viewed', `invoice_${id}`, 'success', req, user.id);
-
-      const { data: lignes, error: err2 } = await supabaseServer
+      const { data: lignes } = await supabaseServer
         .from('prestations')
-        .select('id, description, quantite, prix_unit')
-        .eq('facture_id', id)
-        .order('id');
-
-      if (err2) {
-        console.error('GET /api/factures prestations error:', err2);
-      }
+        .select('*')
+        .eq('facture_id', id);
 
       const f: any = facture;
 
@@ -115,18 +88,8 @@ export async function GET(req: Request) {
     // Liste des factures
     let query = supabaseServer
       .from('factures')
-      .select(
-        `
-        id,
-        numero,
-        date,
-        type_document,
-        total_ht,
-        client_id,
-        clients ( nom )
-      `,
-      )
-      .eq('user_id', user.id) // Sécurité : ne lister que les factures de l'utilisateur
+      .select('id, numero, date, type_document, total_ht, client_id, clients(nom)')
+      .eq('user_id', user.id)
       .order('date', { ascending: false });
 
     if (clientId) {
@@ -140,24 +103,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Erreur interne du serveur.' }, { status: 500 });
     }
 
-    const factures =
-      (data ?? []).map((f: any) => ({
-        id: f.id,
-        numero: f.numero,
-        date: f.date,
-        typeDocument: f.type_document,
-        totalHT: f.total_ht,
-        clientId: f.client_id,
-        client: { nom: f.clients?.nom ?? '' },
-      }));
+    const factures = (data ?? []).map((f: any) => ({
+      id: f.id,
+      numero: f.numero,
+      date: f.date,
+      typeDocument: f.type_document,
+      totalHT: f.total_ht,
+      clientId: f.client_id,
+      client: { nom: f.clients?.nom ?? '' },
+    }));
 
     return NextResponse.json(factures);
   } catch (e: any) {
     console.error('GET /api/factures exception:', e);
-    return NextResponse.json(
-      { error: 'Erreur serveur interne.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
 }
 
@@ -192,8 +151,11 @@ export async function POST(req: Request) {
   const supabaseServer = await createClient();
 
   try {
-    // Récupérer userId
     const { data: { user } } = await supabaseServer.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
 
     const body = await req.json();
     const { typeDocument, date, clientId, prestations, totalHT } = body;
@@ -202,7 +164,7 @@ export async function POST(req: Request) {
       await logAction('invoice_generated', 'invoice_creation', 'failed', req, user?.id);
       return NextResponse.json(
         { error: 'typeDocument, date et clientId sont obligatoires.' },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -216,7 +178,7 @@ export async function POST(req: Request) {
         date,
         client_id: clientId,
         total_ht: totalHT ?? 0,
-        user_id: user?.id,
+        user_id: user.id,
       })
       .select('id, numero')
       .single();
@@ -244,37 +206,34 @@ export async function POST(req: Request) {
       }
     }
 
-    // Logger la création réussie
     await logAction('invoice_generated', `invoice_${factureId}`, 'success', req, user?.id);
 
-    return NextResponse.json(inserted, { status: 201 });
+    return NextResponse.json(inserted);
   } catch (e: any) {
     console.error('POST /api/factures exception:', e);
-    return NextResponse.json(
-      { error: 'Erreur serveur interne.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
 }
 
-// PUT /api/factures?id=... - Modification
+// PUT /api/factures - Modification
 export async function PUT(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
   const supabaseServer = await createClient();
 
-  if (!id) {
-    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-  }
-
   try {
-    // Récupérer userId
     const { data: { user } } = await supabaseServer.auth.getUser();
 
-    const body = await req.json();
-    const { typeDocument, date, clientId, prestations, totalHT } = body;
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
 
-    const { error: errUpdate } = await supabaseServer
+    const body = await req.json();
+    const { id, typeDocument, date, clientId, prestations, totalHT } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
+    }
+
+    const { error } = await supabaseServer
       .from('factures')
       .update({
         type_document: typeDocument,
@@ -282,15 +241,14 @@ export async function PUT(req: Request) {
         client_id: clientId,
         total_ht: totalHT ?? 0,
       })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
 
-    if (errUpdate) {
-      console.error('PUT /api/factures update error:', errUpdate);
-      await logAction('invoice_updated', `invoice_${id}`, 'failed', req, user?.id);
-      return NextResponse.json({ error: errUpdate.message }, { status: 500 });
+    if (error) {
+      console.error('PUT /api/factures error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Purger anciennes lignes
     await supabaseServer.from('prestations').delete().eq('facture_id', id);
 
     if (Array.isArray(prestations) && prestations.length > 0) {
@@ -303,20 +261,16 @@ export async function PUT(req: Request) {
       await supabaseServer.from('prestations').insert(lignes);
     }
 
-    // Logger la modification
     await logAction('invoice_updated', `invoice_${id}`, 'success', req, user?.id);
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('PUT /api/factures exception:', e);
-    return NextResponse.json(
-      { error: 'Erreur serveur interne.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
 }
 
-// DELETE /api/factures?id=... - Suppression
+// DELETE /api/factures?id=...
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -327,11 +281,18 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    // Récupérer userId
     const { data: { user } } = await supabaseServer.auth.getUser();
 
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
+
     await supabaseServer.from('prestations').delete().eq('facture_id', id);
-    const { error } = await supabaseServer.from('factures').delete().eq('id', id);
+    const { error } = await supabaseServer
+      .from('factures')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
 
     if (error) {
       console.error('DELETE /api/factures error:', error);
@@ -339,15 +300,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Logger la suppression
     await logAction('invoice_deleted', `invoice_${id}`, 'success', req, user?.id);
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('DELETE /api/factures exception:', e);
-    return NextResponse.json(
-      { error: 'Erreur serveur interne.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Erreur serveur interne.' }, { status: 500 });
   }
 }

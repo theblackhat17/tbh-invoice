@@ -1,5 +1,3 @@
-/* --------------------- app/factures/page.tsx --------------------- */
-
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
@@ -42,9 +40,10 @@ function FacturesPageInner() {
         : '/api/factures';
       const res = await fetch(url);
       const data = await res.json();
-      setFactures(data);
+      setFactures(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Erreur de chargement:', e);
+      setFactures([]);
     } finally {
       setLoading(false);
     }
@@ -52,7 +51,6 @@ function FacturesPageInner() {
 
   useEffect(() => {
     fetchFactures();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientIdFilter]);
 
   const deleteFacture = async (id: string) => {
@@ -66,20 +64,18 @@ function FacturesPageInner() {
       [f.numero, f.client.nom, f.typeDocument]
         .join(' ')
         .toLowerCase()
-        .includes(search.toLowerCase()),
+        .includes(search.toLowerCase())
     )
     .sort((a, b) =>
       sort === 'asc'
         ? new Date(a.date).getTime() - new Date(b.date).getTime()
-        : new Date(b.date).getTime() - new Date(a.date).getTime(),
+        : new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-  if (loading)
-    return <div className="text-center py-20">Chargement...</div>;
+  if (loading) return <div className="text-center py-20">Chargement...</div>;
 
   return (
     <div className="py-10 container-app">
-      {/* Header + filtres */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <h1 className="text-4xl font-bold">📄 Factures</h1>
 
@@ -98,9 +94,7 @@ function FacturesPageInner() {
               className="btn-ghost flex-1 sm:flex-none"
               title="Changer l'ordre"
             >
-              {sort === 'asc'
-                ? '⬆️ Plus anciennes'
-                : '⬇️ Plus récentes'}
+              {sort === 'asc' ? '⬆️ Plus anciennes' : '⬇️ Plus récentes'}
             </button>
 
             <Link
@@ -115,10 +109,7 @@ function FacturesPageInner() {
 
       {clientIdFilter && factures.length > 0 && (
         <p className="text-sm text-gray-500 mb-4">
-          Factures pour&nbsp;
-          <span className="font-semibold">
-            {factures[0].client.nom}
-          </span>
+          Factures pour <span className="font-semibold">{factures[0].client.nom}</span>
         </p>
       )}
 
@@ -133,14 +124,9 @@ function FacturesPageInner() {
               <tr>
                 <th className="py-3 px-5">Numéro</th>
                 <th className="py-3 px-5">Date</th>
-                <th className="py-3 px-5">Type</th>
                 <th className="py-3 px-5">Client</th>
-                <th className="py-3 px-5 text-right whitespace-nowrap">
-                  Montant HT
-                </th>
-                <th className="py-3 px-5 text-center whitespace-nowrap">
-                  Actions
-                </th>
+                <th className="py-3 px-5 text-right whitespace-nowrap">Montant HT</th>
+                <th className="py-3 px-5 text-center whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -151,22 +137,9 @@ function FacturesPageInner() {
                     i % 2 ? 'bg-zinc-50/40 dark:bg-zinc-900/20' : ''
                   }`}
                 >
-                  <td className="py-3 px-5 font-medium whitespace-nowrap">
-                    {f.numero}
-                  </td>
+                  <td className="py-3 px-5 font-medium whitespace-nowrap">{f.numero}</td>
                   <td className="py-3 px-5 whitespace-nowrap">
                     {new Date(f.date).toLocaleDateString('fr-FR')}
-                  </td>
-                  <td className="py-3 px-5 whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-semibold ${
-                        f.typeDocument === 'Facture'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-green-100 text-green-800'
-                      }`}
-                    >
-                      {f.typeDocument}
-                    </span>
                   </td>
                   <td className="py-3 px-5">{f.client.nom}</td>
                   <td className="py-3 px-5 text-right font-semibold whitespace-nowrap">
@@ -174,7 +147,6 @@ function FacturesPageInner() {
                   </td>
                   <td className="py-3 px-5 text-center">
                     <div className="flex items-center justify-center gap-3">
-                      {/* 👁️ Visualiser le PDF dans un nouvel onglet */}
                       <a
                         href={`/api/pdf?id=${f.id}&action=view`}
                         target="_blank"
@@ -184,15 +156,13 @@ function FacturesPageInner() {
                       >
                         👁️
                       </a>
-                      {/* ✏️ Modifier la facture */}
                       <Link
                         href={`/factures/${f.id}/edit`}
                         className="hover:text-amber-600"
-                        title="Modifier la facture"
+                        title="Modifier"
                       >
                         ✏️
                       </Link>
-                      {/* 📥 Télécharger le PDF */}
                       <a
                         href={`/api/pdf?id=${f.id}&action=download`}
                         className="hover:text-green-600"
@@ -200,7 +170,6 @@ function FacturesPageInner() {
                       >
                         📥
                       </a>
-                      {/* 🗑️ Supprimer */}
                       <button
                         onClick={() => deleteFacture(f.id)}
                         className="hover:text-red-600"
