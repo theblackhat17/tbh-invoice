@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabaseClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createClient } from '@/lib/supabase-server';
 
+export const dynamic = 'force-dynamic';
+
 // Helper to get client IP
 function getClientIp(request: Request): string {
   const xfwd = request.headers.get('x-forwarded-for');
