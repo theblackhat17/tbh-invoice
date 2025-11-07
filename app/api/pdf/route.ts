@@ -8,11 +8,11 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 /* --------------------- Supabase helpers --------------------- */
-async function ensureBucket() {
+async function ensureBucket(bucketName: string) {
   const { data } = await supabaseAdmin.storage.listBuckets();
-  if (!data?.some((b) => b.name === 'factures')) {
+  if (!data?.some((b) => b.name === bucketName)) {
     await supabaseAdmin.storage
-      .createBucket('factures', { public: true, fileSizeLimit: '20mb' })
+      .createBucket(bucketName, { public: true, fileSizeLimit: '20mb' })
       .catch(() => void 0);
   }
 }
@@ -41,7 +41,7 @@ async function fetchFactureFull(id: string) {
     id: String(facture.id),
     numero: String(facture.numero),
     date: String(facture.date),
-    typeDocument: String(facture.type_document),
+    typeDocument: 'FACTURE', // Standardize for PDF
     totalHT: Number(facture.total_ht ?? 0),
     client: {
       nom: (facture.client as any)?.nom || '—',
@@ -54,6 +54,45 @@ async function fetchFactureFull(id: string) {
     })),
   };
 }
+
+async function fetchDevisFull(id: string) {
+  const { data: devis, error } = await supabaseAdmin
+    .from('devis')
+    .select(`
+      id, numero, date, total_ht,
+      client:clients ( id, nom, adresse )
+    `)
+    .eq('id', id)
+    .single();
+
+  if (error || !devis) throw new Error(error?.message || 'Devis introuvable');
+
+  const { data: lignes, error: err2 } = await supabaseAdmin
+    .from('prestations_devis')
+    .select('description, quantite, prix_unit')
+    .eq('devis_id', id)
+    .order('id');
+
+  if (err2) throw new Error(err2.message);
+
+  return {
+    id: String(devis.id),
+    numero: String(devis.numero),
+    date: String(devis.date),
+    typeDocument: 'DEVIS', // Standardize for PDF
+    totalHT: Number(devis.total_ht ?? 0),
+    client: {
+      nom: (devis.client as any)?.nom || '—',
+      adresse: (devis.client as any)?.adresse || '',
+    },
+    prestations: (lignes ?? []).map((p) => ({
+      description: String(p.description ?? ''),
+      quantite: Number(p.quantite ?? 0),
+      prixUnit: Number(p.prix_unit ?? 0),
+    })),
+  };
+}
+
 
 /* --------------------- PDF Theme --------------------- */
 const COLORS = {
@@ -101,11 +140,12 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const id = url.searchParams.get('id');
-    const action = url.searchParams.get('action') || 'view'; // 'view' ou 'download'
+    const type = url.searchParams.get('type') || 'facture'; // 'facture' or 'devis'
+    const action = url.searchParams.get('action') || 'view'; // 'view' or 'download'
     
     if (!id) return NextResponse.json({ error: 'ID manquant' }, { status: 400 });
 
-    const f = await fetchFactureFull(id);
+    const doc = type === 'devis' ? await fetchDevisFull(id) : await fetchFactureFull(id);
 
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -139,7 +179,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.white,
     });
 
-    page.drawText(f.typeDocument.toUpperCase(), {
+    page.drawText(doc.typeDocument.toUpperCase(), {
       x: badgeX + 15,
       y: badgeY + 34,
       size: 10,
@@ -147,7 +187,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.gray,
     });
 
-    page.drawText(`N° ${f.numero}`, {
+    page.drawText(`N° ${doc.numero}`, {
       x: badgeX + 15,
       y: badgeY + 16,
       size: 16,
@@ -168,13 +208,14 @@ export async function GET(req: NextRequest) {
     page.drawText('911 278 992 00019', { x: M + 360, y, size: 10, font, color: COLORS.black });
 
     y -= 24;
-    const dateFR = new Date(f.date).toLocaleDateString('fr-FR');
+    const dateFR = new Date(doc.date).toLocaleDateString('fr-FR');
     page.drawText(`Date : ${dateFR}`, { x: A4.w - M - 120, y, size: 10, font, color: COLORS.gray });
 
     y -= 30;
 
     // BLOC CLIENT
     const clientBoxH = 80;
+    const clientBoxTitle = type === 'devis' ? 'DESTINATAIRE DU DEVIS' : 'FACTURÉ À';
     page.drawRectangle({
       x: M,
       y: y - clientBoxH,
@@ -185,7 +226,7 @@ export async function GET(req: NextRequest) {
       borderWidth: 1.5,
     });
 
-    page.drawText('FACTURÉ À', {
+    page.drawText(clientBoxTitle, {
       x: M + 15,
       y: y - 16,
       size: 10,
@@ -193,7 +234,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.blue,
     });
 
-    page.drawText(f.client.nom, {
+    page.drawText(doc.client.nom, {
       x: M + 15,
       y: y - 34,
       size: 14,
@@ -201,7 +242,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.black,
     });
 
-    const addrLines = wrapText(f.client.adresse, 70);
+    const addrLines = wrapText(doc.client.adresse, 70);
     addrLines.slice(0, 2).forEach((line, i) => {
       page.drawText(line, {
         x: M + 15,
@@ -238,7 +279,7 @@ export async function GET(req: NextRequest) {
 
     y -= tableHeaderH;
 
-    f.prestations.forEach((p, idx) => {
+    doc.prestations.forEach((p, idx) => {
       const total = p.quantite * p.prixUnit;
 
       if (idx % 2 === 1) {
@@ -310,7 +351,7 @@ export async function GET(req: NextRequest) {
       color: COLORS.white,
     });
 
-    page.drawText(formatPrice(f.totalHT), {
+    page.drawText(formatPrice(doc.totalHT), {
       x: totalBoxX + 20,
       y: totalBoxY + 20,
       size: 20,
@@ -336,29 +377,39 @@ export async function GET(req: NextRequest) {
       color: COLORS.bgLight,
     });
 
-    page.drawText('INFORMATIONS BANCAIRES', {
-      x: M,
-      y: 56,
-      size: 9,
-      font: fontBold,
-      color: COLORS.navy,
-    });
+    if (type === 'facture') {
+        page.drawText('INFORMATIONS BANCAIRES', {
+            x: M,
+            y: 56,
+            size: 9,
+            font: fontBold,
+            color: COLORS.navy,
+        });
 
-    page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', {
-      x: M,
-      y: 40,
-      size: 10,
-      font,
-      color: COLORS.black,
-    });
+        page.drawText('IBAN : FR76 2823 3000 0153 3547 5796 770', {
+            x: M,
+            y: 40,
+            size: 10,
+            font,
+            color: COLORS.black,
+        });
 
-    page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', {
-      x: M,
-      y: 24,
-      size: 10,
-      font,
-      color: COLORS.gray,
-    });
+        page.drawText('Titulaire : VANDEWALLE CLEMENT · REVOLUT', {
+            x: M,
+            y: 24,
+            size: 10,
+            font,
+            color: COLORS.gray,
+        });
+    } else {
+        page.drawText(`Devis valable 30 jours.`, {
+            x: M,
+            y: 40,
+            size: 10,
+            font,
+            color: COLORS.gray,
+        });
+    }
 
     page.drawText('TBH ONE', {
       x: A4.w - M - 80,
@@ -371,25 +422,26 @@ export async function GET(req: NextRequest) {
     const pdfBytes = await pdf.save();
     const buffer = Buffer.from(pdfBytes);
 
-    // Optionnel : Sauvegarder dans Supabase en arrière-plan
-    await ensureBucket();
-    const yyyy = new Date(f.date).getFullYear();
-    const mm = String(new Date(f.date).getMonth() + 1).padStart(2, '0');
-    const path = `${yyyy}/${mm}/Facture_${f.numero}_${f.id}.pdf`;
+    const bucketName = type === 'devis' ? 'devis' : 'factures';
+    const fileName = `${doc.typeDocument}_${doc.numero}.pdf`;
 
-    // Upload en arrière-plan sans bloquer la réponse
+    // Optional: Save to Supabase storage in the background
+    await ensureBucket(bucketName);
+    const yyyy = new Date(doc.date).getFullYear();
+    const mm = String(new Date(doc.date).getMonth() + 1).padStart(2, '0');
+    const path = `${yyyy}/${mm}/${doc.typeDocument}_${doc.numero}_${doc.id}.pdf`;
+
     supabaseAdmin.storage
-      .from('factures')
+      .from(bucketName)
       .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true })
       .catch((err) => console.error('Upload error:', err));
 
-    // ✅ TOUJOURS retourner le PDF directement
     const disposition = action === 'download' ? 'attachment' : 'inline';
     
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `${disposition}; filename="Facture_${f.numero}.pdf"`,
+        'Content-Disposition': `${disposition}; filename="${fileName}"`,
         'Cache-Control': 'no-store',
       },
     });

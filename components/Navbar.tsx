@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase-browser";
 const links = [
   { href: "/", label: "Accueil", icon: "🏠" },
   { href: "/factures", label: "Factures", icon: "📄" },
+  { href: "/devis", label: "Devis", icon: "📝" },
   { href: "/clients", label: "Clients", icon: "👥" },
   { href: "/logs", label: "Logs", icon: "📊" },
 ];
