@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createClient } from '@/lib/supabase-browser';
+import { createClient as createServerClient } from '@/lib/supabase-server';
 
 function getClientIp(request: Request): string {
   const xfwd = request.headers.get('x-forwarded-for');
@@ -29,16 +28,17 @@ async function logAction(
       user_agent,
     });
   } catch (err) {
-    console.error('Erreur logging:', err);
+    console.error('❌ Erreur logging:', err);
   }
 }
 
 async function getUserId(): Promise<string | null> {
   try {
-    const supabaseBrowser = createClient();
-    const { data: { user } } = await supabaseBrowser.auth.getUser();
+    const supabase = await createServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
     return user?.id || null;
-  } catch {
+  } catch (err) {
+    console.error('❌ Erreur getUserId:', err);
     return null;
   }
 }
@@ -49,6 +49,8 @@ export async function GET(req: Request) {
   const id = searchParams.get('id');
 
   try {
+    const supabase = await createServerClient();
+    
     if (id) {
       // Détail d'un client
       const { data, error } = await supabase
@@ -58,7 +60,7 @@ export async function GET(req: Request) {
         .single();
 
       if (error) {
-        console.error('GET /api/clients?id error:', error);
+        console.error('❌ GET /api/clients?id error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
@@ -79,7 +81,7 @@ export async function GET(req: Request) {
       .order('nom');
 
     if (error) {
-      console.error('GET /api/clients error:', error);
+      console.error('❌ GET /api/clients error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -97,7 +99,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(clientsWithCount);
   } catch (e: any) {
-    console.error('GET /api/clients exception:', e);
+    console.error('💥 GET /api/clients exception:', e);
     return NextResponse.json(
       { error: 'Erreur serveur interne.' },
       { status: 500 }
@@ -108,8 +110,14 @@ export async function GET(req: Request) {
 // POST /api/clients - Création
 export async function POST(req: Request) {
   try {
+    console.log('🔵 POST /api/clients - Début');
+    
     const userId = await getUserId();
+    console.log('👤 User ID:', userId);
+    
     const body = await req.json();
+    console.log('📦 Body:', body);
+    
     const { nom, adresse, email, telephone, siret } = body;
 
     if (!nom || !adresse) {
@@ -120,7 +128,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    // Utiliser supabaseAdmin pour bypass RLS
+    console.log('💾 Insertion dans Supabase...');
+    const { data, error } = await supabaseAdmin
       .from('clients')
       .insert({
         nom,
@@ -133,17 +143,19 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
-      console.error('POST /api/clients error:', error);
+      console.error('❌ POST /api/clients error:', error);
       await logAction('user_created', 'client_creation', 'failed', req, userId);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    console.log('✅ Client créé:', data);
+    
     // Logger la création réussie
     await logAction('user_created', `client_${data.id}`, 'success', req, userId);
 
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
-    console.error('POST /api/clients exception:', e);
+    console.error('💥 POST /api/clients exception:', e);
     return NextResponse.json(
       { error: 'Erreur serveur interne.' },
       { status: 500 }
@@ -173,7 +185,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('clients')
       .update({
         nom,
@@ -187,17 +199,15 @@ export async function PUT(req: Request) {
       .single();
 
     if (error) {
-      console.error('PUT /api/clients error:', error);
+      console.error('❌ PUT /api/clients error:', error);
       await logAction('user_updated', `client_${id}`, 'failed', req, userId);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Logger la modification réussie
     await logAction('user_updated', `client_${id}`, 'success', req, userId);
-
     return NextResponse.json(data);
   } catch (e: any) {
-    console.error('PUT /api/clients exception:', e);
+    console.error('💥 PUT /api/clients exception:', e);
     return NextResponse.json(
       { error: 'Erreur serveur interne.' },
       { status: 500 }
@@ -216,6 +226,7 @@ export async function DELETE(req: Request) {
 
   try {
     const userId = await getUserId();
+    const supabase = await createServerClient();
 
     // Vérifier si le client a des factures
     const { count } = await supabase
@@ -231,20 +242,21 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const { error } = await supabase.from('clients').delete().eq('id', id);
+    const { error } = await supabaseAdmin
+      .from('clients')
+      .delete()
+      .eq('id', id);
 
     if (error) {
-      console.error('DELETE /api/clients error:', error);
+      console.error('❌ DELETE /api/clients error:', error);
       await logAction('user_deleted', `client_${id}`, 'failed', req, userId);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Logger la suppression réussie
     await logAction('user_deleted', `client_${id}`, 'success', req, userId);
-
     return NextResponse.json({ success: true });
   } catch (e: any) {
-    console.error('DELETE /api/clients exception:', e);
+    console.error('💥 DELETE /api/clients exception:', e);
     return NextResponse.json(
       { error: 'Erreur serveur interne.' },
       { status: 500 }
