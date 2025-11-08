@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createClient as createServerClient } from '@/lib/supabase-server';
+import { createClient as createSupabaseServerClient } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
 
 function getClientIp(request: Request): string {
   const xfwd = request.headers.get('x-forwarded-for');
@@ -32,31 +34,26 @@ async function logAction(
   }
 }
 
-async function getUserId(): Promise<string | null> {
-  try {
-    const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    return user?.id || null;
-  } catch (err) {
-    console.error('❌ Erreur getUserId:', err);
-    return null;
-  }
-}
-
 // GET /api/clients
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const supabaseServer = await createSupabaseServerClient();
 
   try {
-    const supabase = await createServerClient();
+    const { data: { user } } = await supabaseServer.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
     
     if (id) {
       // Détail d'un client
-      const { data, error } = await supabase
+      const { data, error } = await supabaseServer
         .from('clients')
         .select('*')
         .eq('id', id)
+        .eq('user_id', user.id) // Enforce RLS
         .single();
 
       if (error) {
@@ -75,9 +72,10 @@ export async function GET(req: Request) {
     }
 
     // Liste des clients avec comptage des factures
-    const { data: clients, error } = await supabase
+    const { data: clients, error } = await supabaseServer
       .from('clients')
-      .select('*')
+      .select('*, factures(count)') // Use join for count
+      .eq('user_id', user.id) // Enforce RLS
       .order('nom');
 
     if (error) {
@@ -85,17 +83,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Compter les factures par client
-    const clientsWithCount = await Promise.all(
-      (clients || []).map(async (c: any) => {
-        const { count } = await supabase
-          .from('factures')
-          .select('*', { count: 'exact', head: true })
-          .eq('client_id', c.id);
-
-        return { ...c, nbFactures: count ?? 0 };
-      })
-    );
+    const clientsWithCount = (clients || []).map((c: any) => ({
+      ...c,
+      nbFactures: c.factures ? c.factures.length : 0, // Count from join
+    }));
 
     return NextResponse.json(clientsWithCount);
   } catch (e: any) {
@@ -109,11 +100,16 @@ export async function GET(req: Request) {
 
 // POST /api/clients - Création
 export async function POST(req: Request) {
+  const supabaseServer = await createSupabaseServerClient();
+
   try {
     console.log('🔵 POST /api/clients - Début');
     
-    const userId = await getUserId();
-    console.log('👤 User ID:', userId);
+    const { data: { user } } = await supabaseServer.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
+    console.log('👤 User ID:', user.id);
     
     const body = await req.json();
     console.log('📦 Body:', body);
@@ -121,16 +117,15 @@ export async function POST(req: Request) {
     const { nom, adresse, email, telephone, siret } = body;
 
     if (!nom || !adresse) {
-      await logAction('user_created', 'client_creation', 'failed', req, userId);
+      await logAction('user_created', 'client_creation', 'failed', req, user.id);
       return NextResponse.json(
         { error: 'nom et adresse sont obligatoires.' },
         { status: 400 }
       );
     }
 
-    // Utiliser supabaseAdmin pour bypass RLS
     console.log('💾 Insertion dans Supabase...');
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabaseServer
       .from('clients')
       .insert({
         nom,
@@ -138,20 +133,21 @@ export async function POST(req: Request) {
         email: email || null,
         telephone: telephone || null,
         siret: siret || null,
+        user_id: user.id, // Associate client with user
       })
       .select()
       .single();
 
     if (error) {
       console.error('❌ POST /api/clients error:', error);
-      await logAction('user_created', 'client_creation', 'failed', req, userId);
+      await logAction('user_created', 'client_creation', 'failed', req, user.id);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     console.log('✅ Client créé:', data);
     
     // Logger la création réussie
-    await logAction('user_created', `client_${data.id}`, 'success', req, userId);
+    await logAction('user_created', `client_${data.id}`, 'success', req, user.id);
 
     return NextResponse.json(data, { status: 201 });
   } catch (e: any) {
@@ -167,25 +163,30 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const supabaseServer = await createSupabaseServerClient();
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
   try {
-    const userId = await getUserId();
+    const { data: { user } } = await supabaseServer.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { nom, adresse, email, telephone, siret } = body;
 
     if (!nom || !adresse) {
-      await logAction('user_updated', `client_${id}`, 'failed', req, userId);
+      await logAction('user_updated', `client_${id}`, 'failed', req, user.id);
       return NextResponse.json(
         { error: 'nom et adresse sont obligatoires.' },
         { status: 400 }
       );
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabaseServer
       .from('clients')
       .update({
         nom,
@@ -193,18 +194,20 @@ export async function PUT(req: Request) {
         email: email || null,
         telephone: telephone || null,
         siret: siret || null,
+        user_id: user.id, // Ensure user_id is updated or remains the same
       })
       .eq('id', id)
+      .eq('user_id', user.id) // Enforce RLS
       .select()
       .single();
 
     if (error) {
       console.error('❌ PUT /api/clients error:', error);
-      await logAction('user_updated', `client_${id}`, 'failed', req, userId);
+      await logAction('user_updated', `client_${id}`, 'failed', req, user.id);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    await logAction('user_updated', `client_${id}`, 'success', req, userId);
+    await logAction('user_updated', `client_${id}`, 'success', req, user.id);
     return NextResponse.json(data);
   } catch (e: any) {
     console.error('💥 PUT /api/clients exception:', e);
@@ -219,41 +222,46 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
+  const supabaseServer = await createSupabaseServerClient();
 
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
   try {
-    const userId = await getUserId();
-    const supabase = await createServerClient();
+    const { data: { user } } = await supabaseServer.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
 
     // Vérifier si le client a des factures
-    const { count } = await supabase
+    const { count } = await supabaseServer
       .from('factures')
       .select('*', { count: 'exact', head: true })
-      .eq('client_id', id);
+      .eq('client_id', id)
+      .eq('user_id', user.id); // Enforce RLS
 
     if (count && count > 0) {
-      await logAction('user_deleted', `client_${id}`, 'failed', req, userId);
+      await logAction('user_deleted', `client_${id}`, 'failed', req, user.id);
       return NextResponse.json(
         { error: `Impossible de supprimer ce client. Il possède ${count} facture(s).` },
         { status: 400 }
       );
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await supabaseServer
       .from('clients')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id); // Enforce RLS
 
     if (error) {
       console.error('❌ DELETE /api/clients error:', error);
-      await logAction('user_deleted', `client_${id}`, 'failed', req, userId);
+      await logAction('user_deleted', `client_${id}`, 'failed', req, user.id);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    await logAction('user_deleted', `client_${id}`, 'success', req, userId);
+    await logAction('user_deleted', `client_${id}`, 'success', req, user.id);
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('💥 DELETE /api/clients exception:', e);
