@@ -1,133 +1,74 @@
-// app/api/log/route.ts
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { getAuthUser } from '@/lib/middleware-auth';
 
-type LogPayload = {
-  action: string;
-  resource: string;
-  status?: 'success' | 'failed';
-  userId?: string | null;
-};
-
-function normalizeIp(ip: string): string {
-  // Si c'est une IPv4 mappée dans IPv6 (::ffff:192.168.1.1)
-  if (ip.startsWith('::ffff:')) {
-    return ip.substring(7); // Retourne juste la partie IPv4
-  }
-  
-  // Si c'est une IPv6 locale
-  if (ip === '::1') {
-    return '127.0.0.1';
-  }
-  
-  // Sinon retourner l'IP telle quelle
-  return ip;
-}
+export const dynamic = 'force-dynamic';
 
 function getClientIp(request: Request): string {
-  // Essayer différentes sources d'IP
-  const headers = [
-    'x-forwarded-for',
-    'x-real-ip',
-    'cf-connecting-ip', // Cloudflare
-    'true-client-ip',   // Cloudflare Enterprise
-    'x-client-ip',
-  ];
-
-  for (const header of headers) {
-    const value = request.headers.get(header);
-    if (value) {
-      // Prendre la première IP de la liste
-      const ip = value.split(',')[0].trim();
-      return normalizeIp(ip);
-    }
-  }
-
-  return 'unknown';
+  const xfwd = request.headers.get('x-forwarded-for');
+  if (xfwd) return xfwd.split(',')[0].trim();
+  return request.headers.get('x-real-ip') || 'unknown';
 }
 
-/* ----------- POST : créer un log ----------- */
-export async function POST(request: Request) {
+// POST /api/log - Création de log
+export async function POST(req: NextRequest) {
   try {
-    const body = (await request.json()) as LogPayload;
+    const body = await req.json();
+    const { action, resource, status, user_id } = body;
 
-    const action = body.action?.trim();
-    const resource = body.resource?.trim();
-    const status = body.status ?? 'success';
-    const userId = body.userId ?? null;
+    const ip_address = getClientIp(req);
+    const user_agent = req.headers.get('user-agent') ?? 'unknown';
 
-    if (!action || !resource) {
-      return NextResponse.json(
-        { error: 'action et resource obligatoires' },
-        { status: 400 }
-      );
-    }
+    await pool.query(
+      'INSERT INTO access_logs (user_id, action, resource, status, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+      [user_id || null, action, resource || null, status, ip_address, user_agent]
+    );
 
-    const ip_address = getClientIp(request);
-    const user_agent = request.headers.get('user-agent') ?? 'unknown';
-
-    const { error } = await supabaseAdmin.from('access_logs').insert({
-      user_id: userId,
-      action,
-      resource,
-      status,
-      ip_address,
-      user_agent,
-    });
-
-    if (error) {
-      console.error('Erreur log:', error);
-      return NextResponse.json(
-        { error: 'Erreur lors de la création du log' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ message: 'Log enregistré' });
-  } catch (err) {
-    console.error('Erreur POST /api/log:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('❌ POST /api/log error:', error);
+    return NextResponse.json({ error: 'Logging failed' }, { status: 500 });
   }
 }
 
-/* ----------- GET : lister les logs avec pagination ----------- */
-export async function GET(request: Request) {
+// GET /api/log - Liste des logs
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const limit = Math.min(Number(url.searchParams.get('limit') ?? '50'), 1000);
-    const offset = Number(url.searchParams.get('offset') ?? '0');
-    const ip = url.searchParams.get('ip') || undefined;
-    const action = url.searchParams.get('action') || undefined;
-    const status = url.searchParams.get('status') || undefined;
-
-    let query = supabaseAdmin
-      .from('access_logs')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (ip) query = query.eq('ip_address', ip);
-    if (action) query = query.eq('action', action);
-    if (status && status !== 'all') query = query.eq('status', status);
-
-    const { data, count, error } = await query;
-
-    if (error) {
-      console.error('Erreur récupération logs:', error);
-      return NextResponse.json(
-        { error: 'Erreur lors de la récupération des logs' },
-        { status: 500 }
-      );
+    const user = await getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
     }
 
-    return NextResponse.json({
-      total: count ?? null,
-      limit,
-      offset,
-      data: data ?? [],
-    });
-  } catch (err) {
-    console.error('Erreur GET /api/log:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+    const { searchParams } = new URL(req.url);
+    const limit = parseInt(searchParams.get('limit') || '100');
+    const offset = parseInt(searchParams.get('offset') || '0');
+    const action = searchParams.get('action');
+    const status = searchParams.get('status');
+
+    let query = 'SELECT * FROM access_logs WHERE 1=1';
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (action) {
+      query += ` AND action = $${paramIndex}`;
+      params.push(action);
+      paramIndex++;
+    }
+
+    if (status) {
+      query += ` AND status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    return NextResponse.json(result.rows);
+  } catch (error) {
+    console.error('❌ GET /api/log error:', error);
+    return NextResponse.json({ error: 'Fetch failed' }, { status: 500 });
   }
 }

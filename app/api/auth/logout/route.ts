@@ -1,54 +1,33 @@
-import { createClient } from '@/lib/supabase-browser';
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/lib/db';
+import { getAuthUser } from '@/lib/middleware-auth';
 
 function getClientIp(request: Request): string {
   const xfwd = request.headers.get('x-forwarded-for');
-  if (xfwd) {
-    const ips = xfwd.split(',').map(ip => ip.trim());
-    // Chercher une IPv4 en priorité
-    const ipv4 = ips.find(ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip));
-    return ipv4 || ips[0];
-  }
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
-  return 'unknown';
+  if (xfwd) return xfwd.split(',')[0].trim();
+  return request.headers.get('x-real-ip') || 'unknown';
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const user = await getAuthUser(request);
     
-    // Récupérer l'utilisateur avant de se déconnecter
-    const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id || null;
-
-    // Déconnexion
-    await supabase.auth.signOut();
-
-    // Logger la déconnexion
-    const ip_address = getClientIp(request);
-    const user_agent = request.headers.get('user-agent') ?? 'unknown';
-
-    const { error } = await supabaseAdmin.from('access_logs').insert({
-      user_id: userId,
-      action: 'logout',
-      resource: 'auth',
-      status: 'success',
-      ip_address,
-      user_agent,
-    });
-
-    if (error) {
-      console.error('Erreur logging logout:', error);
+    if (user) {
+      const ip_address = getClientIp(request);
+      const user_agent = request.headers.get('user-agent') ?? 'unknown';
+      
+      await pool.query(
+        'INSERT INTO access_logs (action, status, user_id, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)',
+        ['logout', 'success', user.id, ip_address, user_agent]
+      );
     }
-
-    return NextResponse.json({ success: true });
+    
+    const response = NextResponse.json({ success: true });
+    response.cookies.delete('auth-token');
+    
+    return response;
   } catch (error) {
     console.error('Logout error:', error);
-    return NextResponse.json(
-      { error: 'Erreur lors de la déconnexion' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Logout failed' }, { status: 500 });
   }
 }
